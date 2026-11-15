@@ -440,6 +440,9 @@ Unchanged:
   Fixes: `Role::setName()` marks the framework's admin roles as admin (a freshly built ADMIN / SUPERADMIN role was
   never admin); `DBAccount::BASE_ORM_MODEL` names the model (every find of the framework's own Account failed);
   the cache's configured `defaultTTL` is read as an integer.
+- 3.33.0 — The DQL function `JSON_FIELD_TEXT(expr, 'key')` (the text of one top-level key of a JSON column) is
+  registered on MariaDB as well (`MariaDbJsonFieldText`, the SQL of `SqlDialect::jsonFieldText()`); before, it existed
+  on PostgreSQL only, so a QueryBuilder condition on a JSON key ran on one engine. An absent key answers NULL.
 - 3.32.2 — Documentation and tooling only: the module orchestrator skill lists `mgamadeus/ddd-agents` (dependency graph,
   reverse dependencies, its nine module skills); the framework repository's skill gate requires, for a file of that
   module, its entry skill plus the skill its `source-ownership.tsv` names (`ownership_manifest` of a module rule). No

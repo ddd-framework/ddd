@@ -12,6 +12,8 @@ use DDD\Domain\Base\Repo\DB\Dialect\Write\UpdatePolicy;
 use DDD\Domain\Base\Repo\DB\Dialect\Write\UpsertSpec;
 use DDD\Tests\Integration\Fixtures\Repo\DB\CounterRows\DBCounterRow;
 use DDD\Tests\Integration\Fixtures\Repo\DB\CounterRows\DBCounterRowModel;
+use DDD\Tests\Integration\Fixtures\Repo\DB\TranslatedRows\DBTranslatedRow;
+use DDD\Tests\Integration\Fixtures\Repo\DB\TranslatedRows\DBTranslatedRowModel;
 use DDD\Tests\Integration\IntegrationTestCase;
 
 /**
@@ -179,6 +181,27 @@ class SqlFacadeTest extends IntegrationTestCase
         $jsonLiteral = $dialect->name() === 'mariadb' ? "'{\"color\": \"red\"}'" : "'{\"color\": \"red\"}'::json";
         $expr = $dialect->jsonFieldText($jsonLiteral, 'color');
         $this->assertSame('red', (string)static::connection()->fetchOne("SELECT $expr"));
+    }
+
+    public function testJsonFieldTextFiltersOnAJsonKeyInDqlOnBothEngines(): void
+    {
+        $dialect = static::dialect();
+        static::connection()->executeStatement('DELETE FROM ' . $dialect->quote('TranslatedRows'));
+        static::insertRow('TranslatedRows', ['settings' => '{"color": "red", "size": 2}']);
+        static::insertRow('TranslatedRows', ['settings' => '{"color": "blue"}']);
+        static::insertRow('TranslatedRows', ['settings' => '{"size": 3}']);
+
+        $alias = DBTranslatedRowModel::MODEL_ALIAS;
+        $queryBuilder = DBTranslatedRow::createQueryBuilder(true);
+        $queryBuilder->select("COUNT($alias.id)")
+            ->andWhere("JSON_FIELD_TEXT($alias.settings, 'color') = 'red'");
+        $this->assertSame(1, (int)$queryBuilder->getQuery()->getSingleScalarResult());
+
+        // an absent key reads as NULL
+        $queryBuilder = DBTranslatedRow::createQueryBuilder(true);
+        $queryBuilder->select("COUNT($alias.id)")
+            ->andWhere("(JSON_FIELD_TEXT($alias.settings, 'color') IS NULL OR JSON_FIELD_TEXT($alias.settings, 'color') <> 'red')");
+        $this->assertSame(2, (int)$queryBuilder->getQuery()->getSingleScalarResult());
     }
 
     public function testByteLengthCountsBytesInSqlAndDqlOnBothEngines(): void

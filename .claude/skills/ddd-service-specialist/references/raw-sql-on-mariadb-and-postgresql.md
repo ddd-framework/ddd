@@ -86,6 +86,10 @@ $sql = 'SELECT ' . $dialect->jsonText('`toolCall`', $status) . ' AS `runStatus`,
 
 An object or array read as text differs in spacing between the engines: read those in PHP.
 
+In a QueryBuilder (DQL) condition, the text of one top-level key: `JSON_FIELD_TEXT(alias.column, 'key')` — registered
+on both engines since 3.33.0, NULL for an absent key (`(JSON_FIELD_TEXT(c.runSettings, 'evalRun') IS NULL OR
+JSON_FIELD_TEXT(c.runSettings, 'evalRun') <> 'true')`). Deeper paths and bound segments: raw SQL with `jsonText()`.
+
 ## JSON columns: change inside the UPDATE
 
 `jsonUpdate()` builds one expression for `SET col = …`: no read-modify-write, the row is changed under its own lock.

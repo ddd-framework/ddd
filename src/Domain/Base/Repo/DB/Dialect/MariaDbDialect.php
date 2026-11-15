@@ -32,6 +32,7 @@ use DDD\Domain\Base\Repo\DB\Doctrine\Custom\Types\UnescapedJsonType;
 use DDD\Domain\Base\Repo\DB\Doctrine\Custom\Types\VectorType;
 
 use DDD\Domain\Base\Repo\DB\Dialect\Query\MariaDbDistinctSubqueryPagination;
+use DDD\Domain\Base\Repo\DB\Dialect\Query\MariaDbJsonFieldText;
 use DDD\Domain\Base\Repo\DB\Dialect\Query\OctetLength;
 use DDD\Domain\Base\Repo\DB\Dialect\Query\PaginationStrategy;
 use DDD\Domain\Base\Repo\DB\Dialect\Query\SpatialDqlFunctions;
@@ -90,6 +91,8 @@ class MariaDbDialect implements SqlDialect
         $configuration->addCustomStringFunction('STR_TO_DATE', StrToDate::class);
         $configuration->addCustomNumericFunction('RAND', Rand::class);
         $configuration->addCustomNumericFunction('OCTET_LENGTH', OctetLength::class);
+        // the text of one key of a JSON column; PostgreSQL registers the same name (JsonFieldText)
+        $configuration->addCustomStringFunction('JSON_FIELD_TEXT', MariaDbJsonFieldText::class);
 
         // ─── Spatial functions (shared with PostgreSQL; ST_Distance_Sphere is MariaDB's own) ───
         SpatialDqlFunctions::register($configuration);

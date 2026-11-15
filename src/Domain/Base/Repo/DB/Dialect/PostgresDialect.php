@@ -139,7 +139,8 @@ class PostgresDialect implements SqlDialect
      * name MariaDB already registers (via `DoctrineExtensions\Query\Mysql\*`, Doctrine's built-ins, or the brick/geo
      * and vector functions) keeps rendering exactly its current MariaDB SQL, so the golden suite cannot move. What
      * follows registers PostgreSQL's rendering of those SAME DQL names (so existing DQL text needs no call-site
-     * change) plus the names that exist on PostgreSQL only (`TEXT_CAST`, `JSON_TEXT`, `JSON_FIELD_TEXT`,
+     * change) plus the names MariaDB registers later or not at all (`TEXT_CAST`, `JSON_TEXT`, `JSON_FIELD_TEXT` — on
+     * MariaDB since 3.33.0, {@see \DDD\Domain\Base\Repo\DB\Dialect\Query\MariaDbJsonFieldText} —,
      * `FULLTEXT_MATCH`, `FULLTEXT_SCORE`, `TOKEN_MATCH`, `TS_MINUTE_KEY`, `TS_DAY_KEY`, `DATE_BUCKET`,
      * `STRING_AGG_ORDERED`, `INT_DIV`) — on its own `Configuration` instance only, since every scope gets a fresh
      * one (`EntityManagerFactory::create()`). `DATE_ADD`/`DATE_SUB` are deliberately left to Doctrine's portable
