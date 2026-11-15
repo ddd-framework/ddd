@@ -60,8 +60,11 @@ class Date extends DateTime
      */
     public static function fromString(string $stringFormattedDate, string|array $dateTimeFormat = self::DATE): Date|bool
     {
-        if (isset(StaticRegistry::$dateFromStringCache[$stringFormattedDate])) {
-            return StaticRegistry::$dateFromStringCache[$stringFormattedDate];
+        // the cache holds one parsed value per string and format; every caller gets its own copy — a shared object
+        // changed by one caller (`modify()`) changed every other date of the same string in the process
+        $cacheKey = (is_array($dateTimeFormat) ? implode('|', $dateTimeFormat) : $dateTimeFormat) . "\0" . $stringFormattedDate;
+        if (isset(StaticRegistry::$dateFromStringCache[$cacheKey])) {
+            return clone StaticRegistry::$dateFromStringCache[$cacheKey];
         }
         if (is_string($dateTimeFormat)) {
             $tDate = \DateTime::createFromFormat($dateTimeFormat, $stringFormattedDate);
@@ -87,7 +90,7 @@ class Date extends DateTime
 
         // Store in cache unless memory usage is high
         if (!DDDService::instance()->isMemoryUsageHigh()) {
-            StaticRegistry::$dateFromStringCache[$stringFormattedDate] = $date;
+            StaticRegistry::$dateFromStringCache[$cacheKey] = clone $date;
         }
 
         return $date;
