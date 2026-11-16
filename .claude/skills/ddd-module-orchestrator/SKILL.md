@@ -33,6 +33,7 @@ Centralized control for studying, updating, releasing, and propagating changes a
 | `mgamadeus/ddd-common-translations` | Text translation, app UI translations, embeddings |
 | `mgamadeus/ddd-design-studio` | Design review studio: HTML design boards of a checkout on a canvas, comments, statuses, decisions, thumbnails; npm counterpart `@mgamadeus/ddd-design-studio` in `web/` |
 | `mgamadeus/ddd-agents` | The agentic loop on top of `ddd-ai`: conversations, task plan, agent skills and purposes, MCP tools, widgets, delegation and schedules, decision layer, observability; npm counterpart `@mgamadeus/ddd-agents` in `web/` (pre-release) |
+| `mgamadeus/ddd-site-insights` | Search Console (later analytics) for the admin and for agents: reads Google through `ddd-argus` external private calls, caches, stores nothing, states its coverage; console `app:site-insights:*`; npm counterpart `@mgamadeus/ddd-site-insights` in `web/` (pre-release) |
 
 **Module skills of `ddd-agents`** — nine skills, one owner per source file
 (`references/source-ownership.tsv` of the entry skill; the Core skill gate requires the entry skill plus the owning
@@ -64,6 +65,7 @@ Level 2 (depends on ddd + Level 1):
   mgamadeus/ddd-common-political   -> ddd, ddd-argus
   mgamadeus/ddd-ai                 -> ddd, ddd-argus, ddd-common-money
   mgamadeus/ddd-design-studio      -> ddd, ddd-argus
+  mgamadeus/ddd-site-insights      -> ddd, ddd-argus
 
 Level 3 (depends on ddd + Level 1/2):
   mgamadeus/ddd-common-geo         -> ddd, ddd-common-political
@@ -75,21 +77,22 @@ Level 3 (depends on ddd + Level 1/2):
 
 | If you release a fix in... | These children must bump their floor + re-release: |
 |------------------|-------------------------------|
-| **ddd** (Core) | Money, Argus, Political, AI, Geo, Translations, Design Studio, Agents (ALL) |
+| **ddd** (Core) | Money, Argus, Political, AI, Geo, Translations, Design Studio, Agents, Site Insights (ALL) |
 | **ddd-common-money** | AI, Translations, Agents |
-| **ddd-argus** | Political, AI, Design Studio, Agents |
+| **ddd-argus** | Political, AI, Design Studio, Agents, Site Insights |
 | **ddd-common-political** | Geo, Translations |
 | **ddd-ai** | Translations, Agents |
 | **ddd-common-geo** | (none -- leaf module) |
 | **ddd-common-translations** | (none -- leaf module) |
 | **ddd-design-studio** | (none -- leaf module) |
 | **ddd-agents** | (none -- leaf module) |
+| **ddd-site-insights** | (none -- leaf module) |
 
 > **The repositories live in the GitHub organisation `ddd-framework`; the package names stay `mgamadeus/*`.**
 > **GitHub repo names ≠ package names for the four `ddd-common-*` packages** — the repo drops the `common-` segment:
 > `ddd-common-money` → repo `ddd-framework/ddd-money`, `ddd-common-political` → `ddd-framework/ddd-political`,
 > `ddd-common-geo` → `ddd-framework/ddd-geo`, `ddd-common-translations` → `ddd-framework/ddd-translations`.
-> (`ddd`, `ddd-ai`, `ddd-argus`, `ddd-design-studio`, `ddd-agents` match their repo names.) Never create a repository of the same
+> (`ddd`, `ddd-ai`, `ddd-argus`, `ddd-design-studio`, `ddd-agents`, `ddd-site-insights` match their repo names.) Never create a repository of the same
 > name under `mgamadeus` — it would break GitHub's redirect from the old URLs. When pushing, resolve the real repo with
 > `git remote get-url origin` (or the Packagist `source.url`) — do not assume the repo matches the package name.
 
@@ -144,12 +147,20 @@ refresh, token utilities, and TS types of the DDD wire format. No UI components,
 Not part of the Composer dependency graph: a Core release needs no ddd-web release unless the OpenAPI contract
 changed.
 
-### A module with an npm counterpart: `ddd-design-studio` (and `ddd-agents`)
+### A module with an npm counterpart: `ddd-design-studio` (and `ddd-agents`, `ddd-site-insights`)
 
 The repository carries the Composer package at its root and the npm package `@mgamadeus/ddd-design-studio` in
 `web/`, versions in lockstep (`composer.json` = `web/package.json`). One tag `vX.Y.Z` releases both: Packagist reads
 it, and `release.yml` publishes `web/` through npm trusted publishing with provenance (it skips a version already on
 npm). The release workflow checks that the tag, `composer.json` and `web/package.json` agree.
+
+### npm-only packages of the ecosystem
+
+`@mgamadeus/ddd-web` (contract client, SDK generator) and `@mgamadeus/ddd-admin-ui` (the admin building blocks:
+primitives, list, page, form, translations, media, data; repo `ddd-framework/ddd-admin-ui`) have no Composer part.
+Both release by tag through `release.yml` (npm trusted publishing). A new npm package name needs the owner once: the
+first publish and `npm trust` with 2FA (never a token), then every tag publishes on its own. A new Composer package
+needs its Packagist registration and the repository's Packagist webhook (owner, browser).
 
 ### Consuming Applications
 

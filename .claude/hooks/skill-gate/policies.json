@@ -224,6 +224,16 @@
       "skills": [
         "ddd-module-translations-specialist"
       ]
+    },
+    {
+      "category": "ddd-site-insights module",
+      "patterns": [
+        "*/DDD/Modules/SiteInsights/src/*",
+        "*/DDD/Modules/SiteInsights/config/*"
+      ],
+      "skills": [
+        "ddd-module-site-insights-specialist"
+      ]
     }
   ]
 }
