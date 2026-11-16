@@ -25,11 +25,17 @@ class Date extends DateTime
 
     protected $toStringCache = null;
 
+    /**
+     * The calendar day `$datetime` names in `$timezone` (default: PHP's default zone), at midnight UTC. Before, the day
+     * was taken at midnight of the given zone and then converted to UTC: east of UTC `2026-11-10` became `2026-11-09`.
+     */
     public function __construct(string $datetime = 'now', ?DateTimeZone $timezone = null)
     {
         parent::__construct($datetime, $timezone);
-        $this->setTime(0, 0, 0, 0);
+        [$year, $month, $dayOfMonth] = array_map('intval', explode('-', $this->format('Y-n-j')));
         $this->setTimezone(new DateTimeZone('UTC'));
+        $this->setDate($year, $month, $dayOfMonth);
+        $this->setTime(0, 0, 0, 0);
     }
 
     /**
@@ -81,12 +87,8 @@ class Date extends DateTime
             return false;
         }
 
-        // Set time to 00:00:00 and timezone to UTC
-        $tDate->setTime(0, 0, 0);
-        $tDate->setTimezone(new DateTimeZone('UTC'));
-
-        $date = new Date();
-        $date->setTimestamp($tDate->getTimestamp());
+        // the calendar day the string names, at midnight UTC (never shifted by PHP's default zone)
+        $date = new Date($tDate->format('Y-m-d'), new DateTimeZone('UTC'));
 
         // Store in cache unless memory usage is high
         if (!DDDService::instance()->isMemoryUsageHigh()) {
