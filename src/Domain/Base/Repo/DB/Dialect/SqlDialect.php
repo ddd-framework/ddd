@@ -43,6 +43,19 @@ interface SqlDialect
     /** Quotes a single identifier for raw SQL on this engine (`` `x` `` | `"x"`). */
     public function quote(string $identifier): string;
 
+    /**
+     * The character this engine quotes an identifier with in raw SQL (`` ` `` | `"`) — for code that reads SQL
+     * text, such as {@see \DDD\Domain\Base\Repo\DB\Doctrine\Audit\DatabaseWriteStatement}.
+     */
+    public function identifierQuoteCharacter(): string;
+
+    /**
+     * The words that open the conflict clause of an upsert on this engine, as the engine's SQL text carries them:
+     * `ON DUPLICATE KEY UPDATE` | `ON CONFLICT` — for code that reads SQL text, such as
+     * {@see \DDD\Domain\Base\Repo\DB\Doctrine\Audit\DatabaseWriteStatement}.
+     */
+    public function upsertConflictClause(): string;
+
     /** Step 4a: the CREATE-path schema renderer (§4.10). ALTER/introspection land in step 7. */
     public function ddlRenderer(): DdlRenderer;
 

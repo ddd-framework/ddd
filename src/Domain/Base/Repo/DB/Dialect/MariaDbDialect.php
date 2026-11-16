@@ -165,6 +165,16 @@ class MariaDbDialect implements SqlDialect
         return '`' . $identifier . '`';
     }
 
+    public function identifierQuoteCharacter(): string
+    {
+        return '`';
+    }
+
+    public function upsertConflictClause(): string
+    {
+        return 'ON DUPLICATE KEY UPDATE';
+    }
+
     public function ddlRenderer(): DdlRenderer
     {
         return new MariaDbDdlRenderer();

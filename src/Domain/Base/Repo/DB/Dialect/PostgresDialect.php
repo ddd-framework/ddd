@@ -299,6 +299,16 @@ class PostgresDialect implements SqlDialect
         return '"' . str_replace('"', '""', $identifier) . '"';
     }
 
+    public function identifierQuoteCharacter(): string
+    {
+        return '"';
+    }
+
+    public function upsertConflictClause(): string
+    {
+        return 'ON CONFLICT';
+    }
+
     public function ddlRenderer(): DdlRenderer
     {
         return new PostgresDdlRenderer(new IdentifierPolicy());

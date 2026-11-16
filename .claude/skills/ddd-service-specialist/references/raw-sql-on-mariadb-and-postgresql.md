@@ -63,6 +63,10 @@ Every method returns SQL text; arguments are SQL expressions (a quoted column, a
 | update one table from a join | `updateFromJoin(UpdateFromJoinSpec)` |
 | share lock at the end of a SELECT | `forShare()` (`FOR UPDATE` is the same text on both) |
 | upsert / insert-or-lose of one row without an entity | `upsert($connection, UpsertSpec)`, `insertOrNull($connection, UpsertSpec)` |
+| code that READS an engine's SQL text (a parser, an audit) | `identifierQuoteCharacter()` (`` ` `` / `"`), `upsertConflictClause()` (`ON DUPLICATE KEY UPDATE` / `ON CONFLICT`) — never for building SQL: write backticks, the connection converts them |
+
+A class that implements `SqlDialect` itself implements every method of the interface; the interface grows in minor
+releases.
 
 ## JSON columns: read
 
