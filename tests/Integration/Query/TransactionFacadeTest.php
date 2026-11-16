@@ -327,6 +327,35 @@ class TransactionFacadeTest extends IntegrationTestCase
         $this->assertSame($limitsBefore, $connection->fetchOne($readLimitsSql));
     }
 
+    /**
+     * A session that holds its own limits gets exactly those back, not the server defaults; a second clear changes
+     * nothing (MariaDB: a proxy that tracks session variables only when set to whole numbers needs exactly this).
+     */
+    public function testTimeoutsGoBackToWhatTheSessionHeldBefore(): void
+    {
+        if (static::currentDriver() === 'pdo_pgsql') {
+            $this->markTestSkipped('PostgreSQL limits end with the transaction (SET LOCAL).');
+        }
+        $dialect = static::dialect();
+        $connection = $this->secondConnection();
+        $readLimitsSql = "SELECT CONCAT(@@SESSION.innodb_lock_wait_timeout, '/', FLOOR(@@SESSION.max_statement_time))";
+        $connection->executeStatement('SET SESSION innodb_lock_wait_timeout = 11, max_statement_time = 13');
+
+        $connection->beginTransaction();
+        $dialect->setTransactionTimeouts($connection, 3, 7);
+        $connection->beginTransaction();
+        $dialect->setTransactionTimeouts($connection, null, 5);
+        $this->assertSame('3/5', $connection->fetchOne($readLimitsSql));
+        $connection->commit();
+        $connection->commit();
+        $dialect->clearTransactionTimeouts($connection);
+
+        $this->assertSame('11/13', $connection->fetchOne($readLimitsSql));
+
+        $dialect->clearTransactionTimeouts($connection);
+        $this->assertSame('11/13', $connection->fetchOne($readLimitsSql), 'a clear without a change issues nothing');
+    }
+
     public function testStringAggDistinctListsEachValueOnceInOrder(): void
     {
         $dialect = static::dialect();

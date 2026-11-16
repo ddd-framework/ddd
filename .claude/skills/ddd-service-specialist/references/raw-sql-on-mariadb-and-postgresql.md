@@ -183,6 +183,13 @@ try {
 }
 ```
 
+On MariaDB the limits are session values: `setTransactionTimeouts()` reads what the session holds before its first
+change and `clearTransactionTimeouts()` puts exactly that back, as whole numbers in one statement (a clear without a
+set issues nothing). Never reset them yourself with `SET SESSION … = DEFAULT`, `= @@GLOBAL.…`, a decimal value or
+`SET STATEMENT … FOR …`: behind a proxy that tracks session variables only when they are set to whole numbers (e.g.
+ProxySQL with read/write split) the connection is then bound to one hostgroup and the next read outside a transaction
+fails (ProxySQL error 9006); a decimal value is refused.
+
 A statement over the lock wait limit throws `Doctrine\DBAL\Exception\LockWaitTimeoutException` on both engines
 (PostgreSQL SQLSTATE 55P03 included, also from `FOR UPDATE NOWAIT`); over the statement limit another DBAL exception.
 PostgreSQL then aborts the transaction (roll back, start again); MariaDB rolls back the statement only. Code that must

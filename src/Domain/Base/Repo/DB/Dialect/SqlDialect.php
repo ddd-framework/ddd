@@ -247,8 +247,10 @@ interface SqlDialect
     public function setTransactionTimeouts(Connection $connection, ?int $lockWaitTimeoutSeconds, ?int $statementTimeoutSeconds): void;
 
     /**
-     * Puts the limits of {@see setTransactionTimeouts()} back to the server defaults on MariaDB; nothing on
-     * PostgreSQL (the end of the transaction did). Call it after the commit or the rollback, in a `finally`.
+     * Puts the limits back that the session held before {@see setTransactionTimeouts()} on MariaDB (as whole
+     * numbers, so a connection pooler that tracks session variables keeps routing the connection); nothing on
+     * PostgreSQL (the end of the transaction did). Call it after the commit or the rollback, in a `finally`. Without a
+     * {@see setTransactionTimeouts()} before it, it issues nothing.
      *
      * @throws \Doctrine\DBAL\Exception
      */

@@ -71,6 +71,13 @@ class MariaDbDialect implements SqlDialect
     /** @var WeakMap<Connection, MariaDbLockService>|null The lock service of each connection, see {@see locks()} */
     protected ?WeakMap $lockServicesByConnection = null;
 
+    /**
+     * @var WeakMap<Connection, MariaDbSessionTimeouts>|null The limits each connection's session held before
+     * {@see setTransactionTimeouts()} changed them; an entry lives from the first change to the next
+     * {@see clearTransactionTimeouts()}
+     */
+    protected ?WeakMap $sessionTimeoutsBeforeTheChangeByConnection = null;
+
     public function name(): string
     {
         return self::MARIADB;
@@ -377,6 +384,7 @@ class MariaDbDialect implements SqlDialect
     public function setTransactionTimeouts(Connection $connection, ?int $lockWaitTimeoutSeconds, ?int $statementTimeoutSeconds): void
     {
         $this->requireOpenTransaction($connection, 'setTransactionTimeouts');
+        $this->rememberSessionTimeoutsBeforeTheChange($connection);
         if ($lockWaitTimeoutSeconds !== null) {
             $connection->executeStatement('SET SESSION innodb_lock_wait_timeout = ' . max(1, $lockWaitTimeoutSeconds));
         }
@@ -385,10 +393,43 @@ class MariaDbDialect implements SqlDialect
         }
     }
 
+    /**
+     * Puts back the two limits the session held before {@see setTransactionTimeouts()}, as whole numbers in one
+     * statement; nothing when no limit was changed since the last call. Never `= DEFAULT`, `= @@GLOBAL.…` or a
+     * decimal value: a connection pooler that tracks session variables only when they are set to whole numbers
+     * (e.g. ProxySQL) otherwise keeps the connection on one hostgroup and refuses the next read it would route
+     * elsewhere.
+     */
     public function clearTransactionTimeouts(Connection $connection): void
     {
-        $connection->executeStatement('SET SESSION innodb_lock_wait_timeout = DEFAULT');
-        $connection->executeStatement('SET SESSION max_statement_time = DEFAULT');
+        $mariaDbSessionTimeouts = $this->sessionTimeoutsBeforeTheChangeByConnection[$connection] ?? null;
+        if ($mariaDbSessionTimeouts === null) {
+            return;
+        }
+        unset($this->sessionTimeoutsBeforeTheChangeByConnection[$connection]);
+        $connection->executeStatement($mariaDbSessionTimeouts->buildSetSessionSql());
+    }
+
+    /**
+     * Reads the session's two limits once per change: a second {@see setTransactionTimeouts()} before the clear (a
+     * change nested in another one) keeps the values of the first.
+     *
+     * @throws \Doctrine\DBAL\Exception
+     */
+    protected function rememberSessionTimeoutsBeforeTheChange(Connection $connection): void
+    {
+        $this->sessionTimeoutsBeforeTheChangeByConnection ??= new WeakMap();
+        if (isset($this->sessionTimeoutsBeforeTheChangeByConnection[$connection])) {
+            return;
+        }
+        $sessionValues = $connection->fetchNumeric('SELECT @@SESSION.innodb_lock_wait_timeout, @@SESSION.max_statement_time');
+        if ($sessionValues === false) {
+            return;
+        }
+        $this->sessionTimeoutsBeforeTheChangeByConnection[$connection] = MariaDbSessionTimeouts::fromSessionValues(
+            $sessionValues[0],
+            $sessionValues[1]
+        );
     }
 
     public function beginTransactionAtIsolationLevel(Connection $connection, int $isolationLevel): void
