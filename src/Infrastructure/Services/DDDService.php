@@ -496,6 +496,48 @@ class DDDService
     }
 
     /**
+     * Raises the PHP memory limit to the requested one; never lowers it. For code that runs inside a process it does
+     * not own (a message handler: in a worker, but also in-process from a console command with a higher limit), where
+     * `ini_set('memory_limit', …)` would lower the limit of that process, or, with the usage already above the
+     * requested value, make PHP warn "Failed to set memory limit" (an exception under the dev kernel).
+     *
+     * - The current limit is off (`-1`) or already at or above the requested one: nothing changes.
+     * - The requested limit is at or below the current usage: nothing changes (a value PHP would refuse with a
+     *   warning). This cannot happen while the current limit is below the requested one, since the usage never
+     *   exceeds the current limit; the guard keeps the method warning-free whatever the seams report.
+     * - Else the limit is set to the requested value; `-1` lifts it.
+     *
+     * @param string $memoryLimit A `memory_limit` value: plain bytes, a `K` / `M` / `G` suffix in either case, or `-1`
+     * @return bool True when the limit was changed
+     * @throws \InvalidArgumentException When the value is no `memory_limit` value (or zero)
+     */
+    public function raiseMemoryLimitToAtLeast(string $memoryLimit): bool
+    {
+        $memoryLimit = trim($memoryLimit);
+        $requestedMemoryLimitInBytes = self::convertMemoryLimitToBytes($memoryLimit);
+        if ($requestedMemoryLimitInBytes === PHP_INT_MAX && $memoryLimit !== '-1') {
+            throw new \InvalidArgumentException("'{$memoryLimit}' is no memory_limit value (bytes, K, M, G or -1)");
+        }
+        $currentMemoryLimitInBytes = $this->getMemoryLimitInBytes();
+        if ($currentMemoryLimitInBytes === PHP_INT_MAX || $currentMemoryLimitInBytes >= $requestedMemoryLimitInBytes) {
+            return false;
+        }
+        if ($requestedMemoryLimitInBytes <= $this->getCurrentMemoryUsageInBytes()) {
+            return false;
+        }
+        return $this->setMemoryLimitSetting($memoryLimit);
+    }
+
+    /**
+     * @param string $memoryLimit The `memory_limit` value to set
+     * @return bool True when PHP accepted the value
+     */
+    protected function setMemoryLimitSetting(string $memoryLimit): bool
+    {
+        return ini_set('memory_limit', $memoryLimit) !== false;
+    }
+
+    /**
      * @return bool True when the usage is above half the memory limit; never true without a limit (`-1`)
      */
     public function isMemoryUsageHigh(): bool

@@ -913,6 +913,23 @@ entity manager, `gc_collect_cycles()`, then `noteMemoryReleased()`).
 - `isMemoryUsageHigh()` stays for caches that only skip storing above the threshold (`SerializerRegistry`,
   `Date::fromString()`).
 
+### Raising the memory limit (`DDDService::raiseMemoryLimitToAtLeast()`)
+
+Code that runs inside a process it does not own — a message handler, which a console command may also run in-process
+— raises the memory limit and never sets it:
+
+```php
+DDDService::instance()->raiseMemoryLimitToAtLeast('512M');   // true when the limit changed
+```
+
+- No change when the limit is `-1` or already at or above the requested one; it never lowers.
+- No change when the requested value is at or below the current usage, so PHP never warns "Failed to set memory
+  limit" (the dev kernel turns that warning into an exception and the job fails).
+- Accepts plain bytes, `K` / `M` / `G` in either case and `-1` (lifts the limit); anything else throws
+  `\InvalidArgumentException`.
+- A plain `ini_set('memory_limit', '512M')` there lowered a command's 2048M and failed the job once the usage was
+  above 512M. A process that owns its limit (a console command, a script) may still use `ini_set`.
+
 ## Rights Protection System
 
 > **Full documentation:** See `ddd-rights-specialist` for the complete rights system: all 6 patterns (direct filter, leftJoin chain, subquery, custom update rights, property hiding, RolesRequiredForUpdate), the `_rights` alias convention, snapshot/restore mechanism, and real-world examples from 18+ repository implementations.

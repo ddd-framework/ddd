@@ -20,6 +20,8 @@ write or run anything.
 - **The logic lives in a service method with `bool $async`**: `true` dispatches the message and returns, `false` does
   the work. The caller decides.
 - **Payload = ids and primitives.** The handler reloads the entity.
+- **Raise the memory limit, never set it:** `DDDService::instance()->raiseMemoryLimitToAtLeast('512M')`, not
+  `ini_set('memory_limit', …)` — a handler may run in-process from a command with a higher limit.
 - **`$this->setAuthAccountFromMessage($message)` first**, in every handler.
 - **Never reset state in a handler.** The framework gives every consumed message fresh process state (database
   session, unit of work, entity registries, `throwErrors`). State of your own: a `WorkerStateResetterInterface`

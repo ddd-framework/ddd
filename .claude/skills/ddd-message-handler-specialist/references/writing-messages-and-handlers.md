@@ -153,8 +153,13 @@ try {
 
 ```php
 set_time_limit(120);           // 120s for standard tasks, 500s for heavy imports
-ini_set('memory_limit', '1024M');
+DDDService::instance()->raiseMemoryLimitToAtLeast('1024M');
 ```
+
+A handler **raises** the memory limit, it never sets it with `ini_set('memory_limit', …)`: the handler may run
+in-process from a console command with a higher limit, where `ini_set` lowers that limit, and with the usage already
+above the value PHP warns "Failed to set memory limit", which the dev kernel turns into an exception.
+`raiseMemoryLimitToAtLeast()` leaves `-1` and any higher limit alone and never sets a value at or below the usage.
 
 ## Admin Privilege Escalation (When Required)
 
@@ -229,7 +234,7 @@ class FooBarHandler extends AppMessageHandler
     public function __invoke(FooBarMessage $message): void
     {
         set_time_limit(120);
-        ini_set('memory_limit', '1024M');
+        DDDService::instance()->raiseMemoryLimitToAtLeast('1024M');
 
         $this->setAuthAccountFromMessage($message);
 
