@@ -419,24 +419,36 @@ class DDDService
     }
 
     /**
-     * @return float Returns the percentage of memory used in percent of available memory
+     * @return int The PHP memory limit in bytes; PHP_INT_MAX when the limit is off (`-1`) or unreadable
      */
     public function getMemoryLimitInBytes(): int
     {
-        static $memoryLimit = null;
-        if ($memoryLimit === null) {
-            $memoryLimit = ini_get('memory_limit');
-            if (preg_match('/^(\d+)(.)$/', $memoryLimit, $matches)) {
-                if ($matches[2] == 'M') {
-                    $memoryLimit = $matches[1] * 1024 * 1024;
-                } elseif ($matches[2] == 'K') {
-                    $memoryLimit = $matches[1] * 1024;         // KB to bytes
-                } elseif ($matches[2] == 'G') {
-                    $memoryLimit = $matches[1] * 1024 * 1024 * 1024;  // GB to bytes
-                }
-            }
+        static $memoryLimitInBytes = null;
+        if ($memoryLimitInBytes === null) {
+            $memoryLimitInBytes = self::convertMemoryLimitToBytes((string)ini_get('memory_limit'));
         }
-        return $memoryLimit;
+        return $memoryLimitInBytes;
+    }
+
+    /**
+     * A `memory_limit` value in bytes: plain bytes, a `K` / `M` / `G` suffix in either case; `-1` (no limit), an empty
+     * or an unreadable value is PHP_INT_MAX. Before, `-1` and plain byte values came back as a string and failed the
+     * int return type.
+     */
+    public static function convertMemoryLimitToBytes(string $memoryLimit): int
+    {
+        $memoryLimit = trim($memoryLimit);
+        if (!preg_match('/^(\d+)\s*([kmg]?)$/i', $memoryLimit, $matches)) {
+            return PHP_INT_MAX;
+        }
+        $multiplier = match (strtolower($matches[2])) {
+            'k' => 1024,
+            'm' => 1024 * 1024,
+            'g' => 1024 * 1024 * 1024,
+            default => 1,
+        };
+        $memoryLimitInBytes = (int)$matches[1] * $multiplier;
+        return $memoryLimitInBytes > 0 ? $memoryLimitInBytes : PHP_INT_MAX;
     }
 
     /**
