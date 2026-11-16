@@ -351,8 +351,8 @@ abstract class DatabaseRepoEntity extends RepoEntity
             $entityRegistry->add($entityInstance, static::class, $queryBuilder, $deferredCaching);
         }
         // Entity Manager's unit of work cache of various types especially loaded DoctrineModels can end up using
-        // the whole allocated memory, so if the memory usage is high, we clear it
-        if (DDDService::instance()->isMemoryUsageHigh()) {
+        // the whole allocated memory, so above half the limit we clear it — when a release is due, not on every read
+        if (DDDService::instance()->isMemoryReleaseDue()) {
             EntityManagerFactory::clearAllInstanceCaches();
         }
         // post processing needs to happen after storage!!!

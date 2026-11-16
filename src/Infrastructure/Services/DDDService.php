@@ -75,6 +75,30 @@ class DDDService
     /** @var DDDService */
     protected static $instance;
 
+    /** Above this share of the memory limit the usage counts as high */
+    public const float MEMORY_USAGE_HIGH_SHARE_OF_LIMIT = 0.5;
+
+    /** Default growth, in percent of the memory limit, since the last release before the caches are released again */
+    public const float DEFAULT_MEMORY_RELEASE_STEP_PERCENT_OF_LIMIT = 10.0;
+
+    /** Committed release step in percent of the memory limit (`config/app/Base/Repo.php`, under `database`) */
+    public const string MEMORY_RELEASE_STEP_PERCENT_CONFIG_KEY = 'Base.Repo.database.memoryReleaseStepPercentOfLimit';
+
+    /** Environment variable that overrides the committed release step */
+    public const string MEMORY_RELEASE_STEP_PERCENT_ENV_NAME = 'DDD_MEMORY_RELEASE_STEP_PERCENT_OF_LIMIT';
+
+    /** @var int|null Usage noted after the last release that left the usage above the threshold; null = none */
+    protected static ?int $memoryUsageInBytesAfterLastRelease = null;
+
+    /** @var float|null The release step in percent of the limit, read once per process */
+    protected static ?float $memoryReleaseStepPercentOfLimit = null;
+
+    /** @var string|null The `memory_limit` text {@see self::$convertedMemoryLimitInBytes} was converted from */
+    protected static ?string $convertedMemoryLimitSetting = null;
+
+    /** @var int|null The converted memory limit */
+    protected static ?int $convertedMemoryLimitInBytes = null;
+
 
     public static function instance(): self
     {
@@ -419,15 +443,35 @@ class DDDService
     }
 
     /**
+     * The limit is read from `memory_limit` on every call and converted only when its text changed, so a limit set
+     * later in the process (`ini_set('memory_limit', …)` in a command) is honoured.
+     *
      * @return int The PHP memory limit in bytes; PHP_INT_MAX when the limit is off (`-1`) or unreadable
      */
     public function getMemoryLimitInBytes(): int
     {
-        static $memoryLimitInBytes = null;
-        if ($memoryLimitInBytes === null) {
-            $memoryLimitInBytes = self::convertMemoryLimitToBytes((string)ini_get('memory_limit'));
+        $memoryLimitSetting = $this->getMemoryLimitSetting();
+        if ($memoryLimitSetting !== self::$convertedMemoryLimitSetting || self::$convertedMemoryLimitInBytes === null) {
+            self::$convertedMemoryLimitInBytes = self::convertMemoryLimitToBytes($memoryLimitSetting);
+            self::$convertedMemoryLimitSetting = $memoryLimitSetting;
         }
-        return $memoryLimitInBytes;
+        return self::$convertedMemoryLimitInBytes;
+    }
+
+    /**
+     * @return string The raw `memory_limit` setting of the process
+     */
+    protected function getMemoryLimitSetting(): string
+    {
+        return (string)ini_get('memory_limit');
+    }
+
+    /**
+     * @return int The memory the process uses now, in bytes (`memory_get_usage()`)
+     */
+    protected function getCurrentMemoryUsageInBytes(): int
+    {
+        return memory_get_usage();
     }
 
     /**
@@ -452,11 +496,99 @@ class DDDService
     }
 
     /**
-     * @return bool Returns true if memory usage is high (above 50 %)
+     * @return bool True when the usage is above half the memory limit; never true without a limit (`-1`)
      */
     public function isMemoryUsageHigh(): bool
     {
-        return memory_get_usage() / self::getMemoryLimitInBytes() > 0.5;
+        $memoryLimitInBytes = $this->getMemoryLimitInBytes();
+        if ($memoryLimitInBytes === PHP_INT_MAX) {
+            return false;
+        }
+        return $this->getCurrentMemoryUsageInBytes() / $memoryLimitInBytes > self::MEMORY_USAGE_HIGH_SHARE_OF_LIMIT;
+    }
+
+    /**
+     * Whether the process caches (Doctrine unit of work, entity registry) should be released now. Releasing helps
+     * only when those caches hold the memory; a process that holds it for another reason stays above the threshold
+     * after a release, and releasing on every read then costs a full clear and cycle collection per read while the
+     * registry stores nothing. So:
+     * - below the threshold ({@see self::isMemoryUsageHigh()}): never due;
+     * - the first crossing of the threshold (no release noted above it): due;
+     * - after a release that left the usage above the threshold: due again only once the usage has grown by the
+     *   release step ({@see self::getMemoryReleaseStepInBytes()}) beyond the usage noted after that release.
+     * Falling below the threshold re-arms the first crossing.
+     *
+     * The caller that releases calls {@see self::noteMemoryReleased()} afterwards
+     * ({@see \DDD\Domain\Base\Repo\DB\Doctrine\EntityManagerFactory::clearAllInstanceCaches()} does).
+     *
+     * @return bool True when a release of the process caches is due
+     */
+    public function isMemoryReleaseDue(): bool
+    {
+        if (!$this->isMemoryUsageHigh()) {
+            self::$memoryUsageInBytesAfterLastRelease = null;
+            return false;
+        }
+        if (self::$memoryUsageInBytesAfterLastRelease === null) {
+            return true;
+        }
+        return $this->getCurrentMemoryUsageInBytes() - self::$memoryUsageInBytesAfterLastRelease
+            >= $this->getMemoryReleaseStepInBytes();
+    }
+
+    /**
+     * Notes that the process caches were just released: the usage now is what the next release is measured against.
+     * A release that brought the usage below the threshold notes nothing, so the next crossing releases again.
+     */
+    public function noteMemoryReleased(): void
+    {
+        self::$memoryUsageInBytesAfterLastRelease = $this->isMemoryUsageHigh()
+            ? $this->getCurrentMemoryUsageInBytes()
+            : null;
+    }
+
+    /**
+     * Forgets the last release, so the next {@see self::isMemoryReleaseDue()} above the threshold is due.
+     */
+    public function resetMemoryReleaseState(): void
+    {
+        self::$memoryUsageInBytesAfterLastRelease = null;
+    }
+
+    /**
+     * @return int Bytes the usage must grow beyond the usage after the last release before the next release is due
+     */
+    public function getMemoryReleaseStepInBytes(): int
+    {
+        $memoryLimitInBytes = $this->getMemoryLimitInBytes();
+        if ($memoryLimitInBytes === PHP_INT_MAX) {
+            return PHP_INT_MAX;
+        }
+        return max(1, (int)($memoryLimitInBytes * $this->getMemoryReleaseStepPercentOfLimit() / 100));
+    }
+
+    /**
+     * The release step in percent of the memory limit: the environment variable
+     * {@see self::MEMORY_RELEASE_STEP_PERCENT_ENV_NAME}, else the committed
+     * {@see self::MEMORY_RELEASE_STEP_PERCENT_CONFIG_KEY} (`config/app/Base/Repo.php`, under `database`), else
+     * {@see self::DEFAULT_MEMORY_RELEASE_STEP_PERCENT_OF_LIMIT}. Read once per process; a value that is not a positive
+     * number falls back to the default.
+     *
+     * @return float The release step in percent of the memory limit
+     */
+    protected function getMemoryReleaseStepPercentOfLimit(): float
+    {
+        if (self::$memoryReleaseStepPercentOfLimit !== null) {
+            return self::$memoryReleaseStepPercentOfLimit;
+        }
+        $configuredPercent = Config::getEnv(self::MEMORY_RELEASE_STEP_PERCENT_ENV_NAME);
+        if ($configuredPercent === null || $configuredPercent === '' || $configuredPercent === false) {
+            $configuredPercent = Config::get(self::MEMORY_RELEASE_STEP_PERCENT_CONFIG_KEY);
+        }
+        self::$memoryReleaseStepPercentOfLimit = is_numeric($configuredPercent) && (float)$configuredPercent > 0
+            ? (float)$configuredPercent
+            : self::DEFAULT_MEMORY_RELEASE_STEP_PERCENT_OF_LIMIT;
+        return self::$memoryReleaseStepPercentOfLimit;
     }
 
     /**

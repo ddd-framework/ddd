@@ -64,6 +64,9 @@ abstract class AppMessageHandler
      * ONE implementation for every handler: the {@see \DDD\Symfony\Messenger\Middleware\FreshWorkerStateMiddleware}
      * calls it before any consumed message (unless {@see self::RESET_WORKER_STATE_BEFORE_JOB} is false on the
      * handler); a handler that runs sub-jobs in-process may call it itself between them.
+     * The reset is a memory release: the usage after it is noted ({@see DDDService::noteMemoryReleased()}), so a job
+     * of a worker still above half the memory limit releases again only after growing by the release step, and a
+     * worker back below the limit's half releases again on its next crossing ({@see DDDService::isMemoryReleaseDue()}).
      */
     public static function resetWorkerStateForNewJob(): void
     {
@@ -71,6 +74,7 @@ abstract class AppMessageHandler
         static::renewDatabaseConnection();
         DoctrineEntityRegistry::clear();
         VirtualEntityRegistry::clear();
+        DDDService::instance()->noteMemoryReleased();
     }
 
     /**

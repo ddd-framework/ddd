@@ -68,11 +68,13 @@ class DoctrineEntityRegistry
         string|int|DoctrineQueryBuilder $idOrQuery,
         bool $deferredCaching = false
     ):void {
-        // if memory usage is too high, we do not store new objects
-        if (DDDService::instance()->isMemoryUsageHigh()){
+        // above half the memory limit the registry and the unit of work caches are released, but only when a release
+        // is due (the first crossing, then each time the usage has grown by the release step since the last one). In
+        // between the registry keeps storing: a process that holds its memory for other reasons would otherwise
+        // release on every add and answer no find() from the registry
+        if (DDDService::instance()->isMemoryReleaseDue()) {
             self::$entityRegistry = [];
-            gc_collect_cycles();
-            return;
+            EntityManagerFactory::clearAllInstanceCaches();
         }
         $registryIndex = $repoClass . '_' . ($idOrQuery instanceof DoctrineQueryBuilder ? $idOrQuery->getQueryHash(
             ) : $idOrQuery);

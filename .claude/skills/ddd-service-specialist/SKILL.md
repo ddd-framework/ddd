@@ -885,6 +885,34 @@ Both carry `getHttpStatusCode()` (null without an answer) and the refresh reques
 sends an already rotated refresh token and is refused. Serialize the refresh per connection (`Cache::instance()->acquireLock()`)
 and, on a refusal, re-read the stored token before treating the connection as lost.
 
+### Memory release of the process caches (`DDDService`)
+
+Every entity / set read and every entity registry `add()` checks `DDDService::isMemoryReleaseDue()`; when it answers
+true, the entity registry is emptied and `EntityManagerFactory::clearAllInstanceCaches()` runs (`clear()` on every
+entity manager, `gc_collect_cycles()`, then `noteMemoryReleased()`).
+
+| Usage | Release |
+|---|---|
+| at or below half the memory limit (`isMemoryUsageHigh()` false) | never; also re-arms the first crossing |
+| first crossing of half the limit | due |
+| after a release that left the usage above half the limit | due again only once the usage grew by the release step beyond the usage noted after that release |
+| `memory_limit = -1` | never high, never due |
+
+- **Release step:** 10 % of the memory limit by default; `Base.Repo.database.memoryReleaseStepPercentOfLimit` in
+  `config/app/Base/Repo.php`, overridden by the env variable `DDD_MEMORY_RELEASE_STEP_PERCENT_OF_LIMIT` (read once
+  per process). Between releases the registry keeps storing, so a process that holds its memory for other reasons
+  (large payloads of a long console run) keeps its registry and does not pay a full clear per read.
+- **Memory limit:** `getMemoryLimitInBytes()` reads `memory_limit` on each call (converted when its text changes), so
+  an `ini_set('memory_limit', …)` in a command is honoured.
+- **Workers:** the job reset before each consumed message (`AppMessageHandler::resetWorkerStateForNewJob()`) is a
+  release and notes it: a worker still above half the limit releases again after growing by the step, one back below
+  releases on its next crossing.
+- **Own code that releases** (a long loop clearing the entity managers itself) calls
+  `EntityManagerFactory::clearAllInstanceCaches()`, which notes the release; code that frees memory another way and
+  wants the next crossing to release calls `DDDService::instance()->resetMemoryReleaseState()`.
+- `isMemoryUsageHigh()` stays for caches that only skip storing above the threshold (`SerializerRegistry`,
+  `Date::fromString()`).
+
 ## Rights Protection System
 
 > **Full documentation:** See `ddd-rights-specialist` for the complete rights system: all 6 patterns (direct filter, leftJoin chain, subquery, custom update rights, property hiding, RolesRequiredForUpdate), the `_rights` alias convention, snapshot/restore mechanism, and real-world examples from 18+ repository implementations.

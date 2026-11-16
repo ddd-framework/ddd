@@ -114,7 +114,11 @@ class EntityManagerFactory
     }
 
     /**
-     * @return void Iterates through all instances and calls clear(), this clears Doctrine unit of work caches
+     * Calls clear() on every entity manager instance (the Doctrine unit of work caches), collects cycles and notes
+     * the release ({@see DDDService::noteMemoryReleased()}), so the next memory release is due only after the usage
+     * has grown by the release step ({@see DDDService::isMemoryReleaseDue()}).
+     *
+     * @return void
      */
     public static function clearAllInstanceCaches(): void
     {
@@ -122,6 +126,7 @@ class EntityManagerFactory
             $instance->clear();
         }
         gc_collect_cycles();
+        DDDService::instance()->noteMemoryReleased();
     }
 
     /**

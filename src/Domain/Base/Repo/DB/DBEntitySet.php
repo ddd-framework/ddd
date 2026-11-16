@@ -342,11 +342,8 @@ abstract class DBEntitySet extends DatabaseRepoEntitySet
         // since we load many instances and call find on their repo with loaded OrmInstance we defer cache commit to the end
         $entityRegistry::commit();
         // Entity Manager's unit of work cache of various types especially loaded DoctrineModels can end up using
-        // the whole allocated memory, so if the memory usage is high, we clear it
-        if (DDDService::instance()->isMemoryUsageHigh()) {
-            //echo (memory_get_usage() / AppService::getMemoryLimitInBytes() *100) . "% \n";
-            //echo "Clear Memory Usage \n";
-            //echo (memory_get_usage() / AppService::getMemoryLimitInBytes() *100) . "% \n";
+        // the whole allocated memory, so above half the limit we clear it — when a release is due, not on every read
+        if (DDDService::instance()->isMemoryReleaseDue()) {
             EntityManagerFactory::clearAllInstanceCaches();
         }
         return $this->postProcessAfterMapping($entitySetInstance);

@@ -56,6 +56,11 @@ The defence is to recycle worker processes regularly. Symfony Messenger ships th
 | `--time-limit=3600` | Exit after N seconds (defence against slow leaks) | `3600` for every transport |
 | `--memory-limit=256M` | Exit if memory exceeds threshold | match the transport's real workload |
 
+Inside a process, above half the PHP `memory_limit` the entity registry and the Doctrine unit of work are released on
+the first crossing and then each time the usage grew by a step (10 % of the limit by default); the job reset before
+each message counts as a release (`ddd-service-specialist` → "Memory release of the process caches"). This keeps a
+growing worker in check but frees only those caches — `--memory-limit` remains the recycling guard.
+
 **Sizing `--limit`:**
 
 | Transport profile | Suggested `--limit` |
