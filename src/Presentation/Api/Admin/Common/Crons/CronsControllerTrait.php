@@ -6,6 +6,7 @@ namespace DDD\Presentation\Api\Admin\Common\Crons;
 
 use DDD\Domain\Common\Services\CronsManagementService;
 use DDD\Infrastructure\Exceptions\BadRequestException;
+use DDD\Infrastructure\Exceptions\ForbiddenException;
 use DDD\Infrastructure\Exceptions\ConflictException;
 use DDD\Infrastructure\Exceptions\NotFoundException;
 use DDD\Presentation\Api\Admin\Common\Crons\Dtos\CronCreateRequestDto;
@@ -56,6 +57,7 @@ trait CronsControllerTrait
     #[Summary('Crons List')]
     public function listCrons(CronsManagementService $cronsManagementService): CronsListGetResponseDto
     {
+        $this->throwForbiddenUnlessCronsAccessAllowed();
         $cronsOverview = $cronsManagementService->getCronsOverview();
         $responseDto = new CronsListGetResponseDto();
         $responseDto->crons = $cronsOverview->crons;
@@ -72,6 +74,7 @@ trait CronsControllerTrait
         CronExecutionsListGetRequestDto $requestDto,
         CronsManagementService $cronsManagementService
     ): CronExecutionsListGetResponseDto {
+        $this->throwForbiddenUnlessCronsAccessAllowed();
         $cronExecutionsPage = $cronsManagementService->getCronExecutionsPage(
             $requestDto->cronId,
             $requestDto->result,
@@ -95,6 +98,7 @@ trait CronsControllerTrait
         CronExecutionGetRequestDto $requestDto,
         CronsManagementService $cronsManagementService
     ): CronExecutionDetailGetResponseDto {
+        $this->throwForbiddenUnlessCronsAccessAllowed();
         $cronExecutionDetail = $cronsManagementService->getCronExecutionDetail($requestDto->executionId);
         $responseDto = new CronExecutionDetailGetResponseDto();
         $responseDto->execution = $cronExecutionDetail->execution;
@@ -111,6 +115,7 @@ trait CronsControllerTrait
         CronsTimelineGetRequestDto $requestDto,
         CronsManagementService $cronsManagementService
     ): CronsTimelineGetResponseDto {
+        $this->throwForbiddenUnlessCronsAccessAllowed();
         $cronsTimeline = $cronsManagementService->getCronsTimeline($requestDto->hours);
         $responseDto = new CronsTimelineGetResponseDto();
         $responseDto->from = $cronsTimeline->from;
@@ -127,6 +132,7 @@ trait CronsControllerTrait
     #[Summary('Cron Commands List')]
     public function listCronSchedulableCommands(CronsManagementService $cronsManagementService): CronSchedulableCommandsGetResponseDto
     {
+        $this->throwForbiddenUnlessCronsAccessAllowed();
         $responseDto = new CronSchedulableCommandsGetResponseDto();
         $responseDto->commands = $cronsManagementService->getSchedulableCommands();
         return $responseDto;
@@ -142,6 +148,7 @@ trait CronsControllerTrait
         CronSchedulePreviewGetRequestDto $requestDto,
         CronsManagementService $cronsManagementService
     ): CronSchedulePreviewGetResponseDto {
+        $this->throwForbiddenUnlessCronsAccessAllowed();
         $cronSchedulePreview = $cronsManagementService->getSchedulePreview($requestDto->schedule);
         $responseDto = new CronSchedulePreviewGetResponseDto();
         $responseDto->isValid = $cronSchedulePreview->isValid;
@@ -161,6 +168,7 @@ trait CronsControllerTrait
         CronGetRequestDto $requestDto,
         CronsManagementService $cronsManagementService
     ): CronDetailGetResponseDto {
+        $this->throwForbiddenUnlessCronsAccessAllowed();
         $cronDetail = $cronsManagementService->getCronDetail($requestDto->cronId);
         $responseDto = new CronDetailGetResponseDto();
         $responseDto->cron = $cronDetail->cron;
@@ -184,6 +192,7 @@ trait CronsControllerTrait
         CronCreateRequestDto $requestDto,
         CronsManagementService $cronsManagementService
     ): CronGetResponseDto {
+        $this->throwForbiddenUnlessCronsAccessAllowed();
         $cron = $cronsManagementService->createCron(
             $requestDto->name,
             $requestDto->description,
@@ -209,6 +218,7 @@ trait CronsControllerTrait
         CronUpdateRequestDto $requestDto,
         CronsManagementService $cronsManagementService
     ): CronGetResponseDto {
+        $this->throwForbiddenUnlessCronsAccessAllowed();
         $cron = $cronsManagementService->findCronOrThrowNotFound($requestDto->cronId);
         $cronsManagementService->updateCron(
             $cron,
@@ -234,6 +244,7 @@ trait CronsControllerTrait
         CronGetRequestDto $requestDto,
         CronsManagementService $cronsManagementService
     ): CronDeleteResponseDto {
+        $this->throwForbiddenUnlessCronsAccessAllowed();
         $cron = $cronsManagementService->findCronOrThrowNotFound($requestDto->cronId);
         $cronsManagementService->deleteCron($cron);
         $responseDto = new CronDeleteResponseDto();
@@ -252,6 +263,7 @@ trait CronsControllerTrait
         CronGetRequestDto $requestDto,
         CronsManagementService $cronsManagementService
     ): CronGetResponseDto {
+        $this->throwForbiddenUnlessCronsAccessAllowed();
         $cron = $cronsManagementService->findCronOrThrowNotFound($requestDto->cronId);
         $cronsManagementService->activateCron($cron);
         return $this->buildCronGetResponseDto($requestDto->cronId, $cronsManagementService);
@@ -268,6 +280,7 @@ trait CronsControllerTrait
         CronGetRequestDto $requestDto,
         CronsManagementService $cronsManagementService
     ): CronGetResponseDto {
+        $this->throwForbiddenUnlessCronsAccessAllowed();
         $cron = $cronsManagementService->findCronOrThrowNotFound($requestDto->cronId);
         $cronsManagementService->deactivateCron($cron);
         return $this->buildCronGetResponseDto($requestDto->cronId, $cronsManagementService);
@@ -288,6 +301,7 @@ trait CronsControllerTrait
         CronGetRequestDto $requestDto,
         CronsManagementService $cronsManagementService
     ): CronGetResponseDto {
+        $this->throwForbiddenUnlessCronsAccessAllowed();
         $cron = $cronsManagementService->findCronOrThrowNotFound($requestDto->cronId);
         $cronsManagementService->scheduleCronToRunNow($cron);
         return $this->buildCronGetResponseDto($requestDto->cronId, $cronsManagementService);
@@ -301,5 +315,16 @@ trait CronsControllerTrait
         $responseDto = new CronGetResponseDto();
         $responseDto->cron = $cronsManagementService->getCronOverview($cronId);
         return $responseDto;
+    }
+
+    /**
+     * The access check of every crons endpoint, called first by each action (before validation and any service call).
+     * Empty by default: access is what the firewall and `access_control` grant. An application whose rule is not a
+     * role (an account predicate) overrides it and throws {@see ForbiddenException} (403).
+     *
+     * @throws ForbiddenException When the current request must not reach these endpoints
+     */
+    protected function throwForbiddenUnlessCronsAccessAllowed(): void
+    {
     }
 }

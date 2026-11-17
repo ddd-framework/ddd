@@ -57,6 +57,7 @@ trait DatabaseModelsControllerTrait
         DBTableDiffsGetRequestDto $requestDto,
         DatabaseSchemaDiffService $databaseSchemaDiffService
     ): DBTableDiffsGetResponseDto {
+        $this->throwForbiddenUnlessDatabaseModelsAccessAllowed();
         $responseDto = new DBTableDiffsGetResponseDto();
         $responseDto->diffs = $databaseSchemaDiffService->computeDiffs();
         return $responseDto;
@@ -78,6 +79,7 @@ trait DatabaseModelsControllerTrait
         ApplyDiffsRequestDto $requestDto,
         DatabaseSchemaDiffService $databaseSchemaDiffService
     ): DBTableDiffsGetResponseDto {
+        $this->throwForbiddenUnlessDatabaseModelsAccessAllowed();
         $this->throwForbiddenWhenSchemaWritesAreDisabled();
         $requestedTableNames = $requestDto->sqlTableNames;
         if ($requestedTableNames !== null) {
@@ -146,6 +148,7 @@ trait DatabaseModelsControllerTrait
         ApplyDiffRequestDto $requestDto,
         DatabaseSchemaDiffService $databaseSchemaDiffService
     ): DBTableDiffsGetResponseDto {
+        $this->throwForbiddenUnlessDatabaseModelsAccessAllowed();
         $this->throwForbiddenWhenSchemaWritesAreDisabled();
         $diff = $databaseSchemaDiffService->computeDiffs()->getDiffByTableName($requestDto->sqlTableName);
         if ($diff === null || $diff->changeType === DBTableDiff::CHANGE_TYPE_NO_CHANGE) {
@@ -181,6 +184,7 @@ trait DatabaseModelsControllerTrait
     #[Summary('DatabaseModels SQL Tables Generation')]
     public function generateDatabaseTablesSql(EntityModelGeneratorService $entityModelGeneratorService): HtmlResponseDto
     {
+        $this->throwForbiddenUnlessDatabaseModelsAccessAllowed();
         $this->throwForbiddenWhenSchemaWritesAreDisabled();
         // null = the whole schema: the tables the application excludes stay out
         $sql = $entityModelGeneratorService->createOrUpdateDatabaseTablesForEntities();
@@ -197,6 +201,7 @@ trait DatabaseModelsControllerTrait
     #[Summary('DatabaseModels Doctrine Models Generation')]
     public function generateDoctrineModelsCode(EntityModelGeneratorService $entityModelGeneratorService): HtmlResponseDto
     {
+        $this->throwForbiddenUnlessDatabaseModelsAccessAllowed();
         $doctrineModelsCode = '';
         foreach ($entityModelGeneratorService::getAllEntityClasses(LazyLoadRepo::DB) as $entityClassWithNamespace) {
             $doctrineModelsCode .= $entityModelGeneratorService->generateDoctrineModelForEntityClass(
@@ -220,6 +225,7 @@ trait DatabaseModelsControllerTrait
         DoctrineModelForEntityGetRequestDto $requestDto,
         EntityModelGeneratorService $entityModelGeneratorService
     ): HtmlResponseDto {
+        $this->throwForbiddenUnlessDatabaseModelsAccessAllowed();
         $entityClassName = $this->findDatabaseEntityClassNameByName($requestDto->entityName, $entityModelGeneratorService);
         return new HtmlResponseDto(
             $entityModelGeneratorService->generateDoctrineModelForEntityClass($entityClassName),
@@ -288,5 +294,16 @@ trait DatabaseModelsControllerTrait
                 . 'Apply schema changes through the process that owns the database.'
             );
         }
+    }
+
+    /**
+     * The access check of every database models endpoint, called first by each action (before validation and any service call).
+     * Empty by default: access is what the firewall and `access_control` grant. An application whose rule is not a
+     * role (an account predicate) overrides it and throws {@see ForbiddenException} (403).
+     *
+     * @throws ForbiddenException When the current request must not reach these endpoints
+     */
+    protected function throwForbiddenUnlessDatabaseModelsAccessAllowed(): void
+    {
     }
 }

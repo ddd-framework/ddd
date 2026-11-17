@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace DDD\Tests\Presentation\Api\Admin\Common;
 
+use DDD\Tests\Presentation\Api\Admin\Common\Fixtures\FixtureForbiddingIssuesController;
 use DDD\Tests\Presentation\Api\Admin\Common\Fixtures\FixtureIssuesController;
 
 class IssuesControllerTraitTest extends AdminControllerTraitTestCase
@@ -11,6 +12,16 @@ class IssuesControllerTraitTest extends AdminControllerTraitTestCase
     protected function getFixtureControllerClass(): string
     {
         return FixtureIssuesController::class;
+    }
+
+    protected function getForbiddingFixtureControllerClass(): string
+    {
+        return FixtureForbiddingIssuesController::class;
+    }
+
+    protected function getAccessHookMethodName(): string
+    {
+        return 'throwForbiddenUnlessIssuesAccessAllowed';
     }
 
     public function testTheTraitMountsItsRoutesUnderTheControllerPrefix(): void

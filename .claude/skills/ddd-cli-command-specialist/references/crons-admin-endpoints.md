@@ -124,6 +124,23 @@ Like the workers endpoints the trait checks no roles: the application's controll
 behind the admin audience and restrict the path (e.g. `access_control` on the prefix) to the accounts that may operate
 the system — creating a Cron means choosing a console command that runs on the server.
 
+**Access hook:** every action calls `throwForbiddenUnlessCronsAccessAllowed(): void` first — before any service call and before its own checks. The default is empty. An application whose rule is an account predicate rather than a role (e.g. admin role AND not a partner account) overrides it in its controller and throws `ForbiddenException` (403). It complements `access_control`, it does not replace it: keep the role restriction on the path, add the predicate in the hook.
+
+```php
+class AdminCronsController extends AdminController
+{
+    use CronsControllerTrait;
+
+    protected function throwForbiddenUnlessCronsAccessAllowed(): void
+    {
+        $account = AuthService::instance()->getAccount();
+        if ($account === null || $account->isPartnerAccount()) {
+            throw new ForbiddenException('…');   // DDD\Infrastructure\Exceptions\ForbiddenException: 403
+        }
+    }
+}
+```
+
 ## 8. Errors
 
 | Status | When |

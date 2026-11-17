@@ -646,6 +646,22 @@ class AdminIssuesController extends AdminController
   application's admin base restricts the route. Error payloads carry stack traces, request parameters and account ids
   of every tenant: an application whose admin accounts include less trusted ones (partner or support users) restricts
   the prefix further with `access_control` in `security.yaml`.
+- **Access hook:** every action calls `throwForbiddenUnlessIssuesAccessAllowed(): void` first — before any service call and before its own checks. The default is empty. An application whose rule is an account predicate rather than a role (e.g. admin role AND not a partner account) overrides it in its controller and throws `ForbiddenException` (403). It complements `access_control`, it does not replace it: keep the role restriction on the path, add the predicate in the hook.
+
+```php
+class AdminIssuesController extends AdminController
+{
+    use IssuesControllerTrait;
+
+    protected function throwForbiddenUnlessIssuesAccessAllowed(): void
+    {
+        $account = AuthService::instance()->getAccount();
+        if ($account === null || $account->isPartnerAccount()) {
+            throw new ForbiddenException('…');   // DDD\Infrastructure\Exceptions\ForbiddenException: 403
+        }
+    }
+}
+```
 
 Screen guide (payloads, layout, rules, checklist): [references/admin-screen-guide.md](references/admin-screen-guide.md).
 The error detail of the runtime-error dashboard (Elasticsearch, `RuntimeErrorOccurrence`) and the code-context

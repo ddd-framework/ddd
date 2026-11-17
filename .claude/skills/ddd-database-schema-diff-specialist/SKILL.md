@@ -725,6 +725,22 @@ DTOs: `DDD\Presentation\Api\Admin\Common\DatabaseModels\Dtos\`. What the trait a
 - **Model code is a preview:** the routes never write model files; `app:generate-doctrine-models-for-entities` does.
 - **Access:** no role check in the trait. The schema is the most dangerous admin surface: restrict the path to the
   highest admin role (`access_control` in `security.yaml`, or the application's admin base controller).
+- **Access hook:** every action calls `throwForbiddenUnlessDatabaseModelsAccessAllowed(): void` first — before any service call and before its own checks, so also before the schema-writes check. The default is empty. An application whose rule is an account predicate rather than a role (e.g. admin role AND not a partner account) overrides it in its controller and throws `ForbiddenException` (403). It complements `access_control`, it does not replace it: keep the role restriction on the path, add the predicate in the hook.
+
+```php
+class AdminDatabaseModelsController extends AdminController
+{
+    use DatabaseModelsControllerTrait;
+
+    protected function throwForbiddenUnlessDatabaseModelsAccessAllowed(): void
+    {
+        $account = AuthService::instance()->getAccount();
+        if ($account === null || $account->isPartnerAccount()) {
+            throw new ForbiddenException('…');   // DDD\Infrastructure\Exceptions\ForbiddenException: 403
+        }
+    }
+}
+```
 
 The screen on top: [references/admin-screen-guide.md](references/admin-screen-guide.md). The steps below cover the
 frontend contract in detail.

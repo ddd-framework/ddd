@@ -13,6 +13,7 @@ use DDD\Domain\Common\Services\WorkerProcessesService;
 use DDD\Domain\Common\Services\WorkersOverviewService;
 use DDD\Infrastructure\Base\DateTime\DateTime;
 use DDD\Infrastructure\Exceptions\BadRequestException;
+use DDD\Infrastructure\Exceptions\ForbiddenException;
 use DDD\Infrastructure\Exceptions\NotFoundException;
 use DDD\Presentation\Api\Admin\Common\Workers\Dtos\WorkerMessageRunsGetRequestDto;
 use DDD\Presentation\Api\Admin\Common\Workers\Dtos\WorkerMessageRunsGetResponseDto;
@@ -52,6 +53,7 @@ trait WorkersControllerTrait
     #[Summary('Workers Overview')]
     public function getWorkersOverview(WorkersOverviewService $workersOverviewService): WorkersOverviewGetResponseDto
     {
+        $this->throwForbiddenUnlessWorkersAccessAllowed();
         $responseDto = new WorkersOverviewGetResponseDto();
         $responseDto->workersOverview = $workersOverviewService->getWorkersOverview();
         return $responseDto;
@@ -68,6 +70,7 @@ trait WorkersControllerTrait
         WorkersHistoryGetRequestDto $requestDto,
         WorkersOverviewService $workersOverviewService
     ): WorkersHistoryGetResponseDto {
+        $this->throwForbiddenUnlessWorkersAccessAllowed();
         $responseDto = new WorkersHistoryGetResponseDto();
         $responseDto->workersHistory = $workersOverviewService->getWorkersHistory(
             $requestDto->getFromDateTime(),
@@ -89,6 +92,7 @@ trait WorkersControllerTrait
         WorkersRestartRequestDto $requestDto,
         WorkerProcessesService $workerProcessesService
     ): WorkersRestartResponseDto {
+        $this->throwForbiddenUnlessWorkersAccessAllowed();
         $workersSettings = WorkersSettings::fromEnvironment();
         if (!$workersSettings->enabled) {
             throw new BadRequestException('The worker monitoring is switched off: the worker processes are not known and cannot be asked to restart');
@@ -117,6 +121,7 @@ trait WorkersControllerTrait
         WorkerTransportGetRequestDto $requestDto,
         WorkersOverviewService $workersOverviewService
     ): WorkerTransportDetailGetResponseDto {
+        $this->throwForbiddenUnlessWorkersAccessAllowed();
         $responseDto = new WorkerTransportDetailGetResponseDto();
         $responseDto->workerTransportDetail = $workersOverviewService->getWorkerTransportDetail(
             $requestDto->transport,
@@ -136,6 +141,7 @@ trait WorkersControllerTrait
         WorkerMessageRunsGetRequestDto &$requestDto,
         WorkerMessageRunsService $workerMessageRunsService
     ): WorkerMessageRunsGetResponseDto {
+        $this->throwForbiddenUnlessWorkersAccessAllowed();
         WorkerMessageRuns::getDefaultQueryOptions()->setQueryOptionsFromRequestDto($requestDto);
         if (!isset($requestDto->orderBy)) {
             $newestFirst = OrderByOptions::fromString('startedAt desc');
@@ -156,6 +162,7 @@ trait WorkersControllerTrait
         WorkerProcessesGetRequestDto &$requestDto,
         WorkerProcessesService $workerProcessesService
     ): WorkerProcessesGetResponseDto {
+        $this->throwForbiddenUnlessWorkersAccessAllowed();
         WorkerProcesses::getDefaultQueryOptions()->setQueryOptionsFromRequestDto($requestDto);
         if (!isset($requestDto->orderBy)) {
             $newestFirst = OrderByOptions::fromString('startedAt desc');
@@ -167,5 +174,16 @@ trait WorkersControllerTrait
         $responseDto->workerProcesses = $workerProcessesService->findWorkerProcessesOfTransport($requestDto->transport);
         $workerProcessesService->setDisplayStates($responseDto->workerProcesses, $now, $workersSettings->getLostAfterSeconds());
         return $responseDto;
+    }
+
+    /**
+     * The access check of every workers endpoint, called first by each action (before validation and any service call).
+     * Empty by default: access is what the firewall and `access_control` grant. An application whose rule is not a
+     * role (an account predicate) overrides it and throws {@see ForbiddenException} (403).
+     *
+     * @throws ForbiddenException When the current request must not reach these endpoints
+     */
+    protected function throwForbiddenUnlessWorkersAccessAllowed(): void
+    {
     }
 }

@@ -13,6 +13,7 @@ use DDD\Domain\Common\Services\IssuesOverviewService;
 use DDD\Domain\Common\Services\IssuesRegistryJobService;
 use DDD\Infrastructure\Base\DateTime\DateTime;
 use DDD\Infrastructure\Exceptions\BadRequestException;
+use DDD\Infrastructure\Exceptions\ForbiddenException;
 use DDD\Infrastructure\Exceptions\InternalErrorException;
 use DDD\Infrastructure\Exceptions\NotFoundException;
 use DDD\Presentation\Api\Admin\Common\Issues\Dtos\IssueGroupDetailGetResponseDto;
@@ -65,6 +66,7 @@ trait IssuesControllerTrait
         IssuesRegistryJobService $issuesRegistryJobService,
         IssuesOverviewService $issuesOverviewService
     ): IssueGroupsListGetResponseDto {
+        $this->throwForbiddenUnlessIssuesAccessAllowed();
         $issueGroupStatusCounts = $issueGroupsService->countGroupsByEnvironmentAndStatus();
         $environment = $issuesOverviewService->resolveEnvironment($requestDto->environment, $issueGroupStatusCounts);
         $environmentsToQuery = $issuesOverviewService->resolveEnvironmentsToQuery($environment, $issueGroupStatusCounts);
@@ -116,6 +118,7 @@ trait IssuesControllerTrait
         IssueGroupsService $issueGroupsService,
         IssuesOverviewService $issuesOverviewService
     ): IssuesTrendGetResponseDto {
+        $this->throwForbiddenUnlessIssuesAccessAllowed();
         $environment = $issuesOverviewService->resolveEnvironment($requestDto->environment);
         $timeInterval = $issuesOverviewService->resolveTrendInterval($requestDto->from, $requestDto->to);
         $groupHash = $requestDto->getGroupHashFilter();
@@ -178,6 +181,7 @@ trait IssuesControllerTrait
         IssueGroupsService $issueGroupsService,
         IssuesOverviewService $issuesOverviewService
     ): IssueGroupDetailGetResponseDto {
+        $this->throwForbiddenUnlessIssuesAccessAllowed();
         $issueGroup = $this->findIssueGroupOfRequestOrThrow($requestDto, $issueGroupsService, $issuesOverviewService);
         return IssueGroupDetailGetResponseDto::fromIssueGroupDetail($issuesOverviewService->findIssueGroupDetail($issueGroup));
     }
@@ -199,6 +203,7 @@ trait IssuesControllerTrait
         IssueGroupsService $issueGroupsService,
         IssuesOverviewService $issuesOverviewService
     ): IssueGroupGetResponseDto {
+        $this->throwForbiddenUnlessIssuesAccessAllowed();
         $issueGroup = $this->findIssueGroupOfRequestOrThrow($requestDto, $issueGroupsService, $issuesOverviewService);
         return $this->buildIssueGroupResponse($issuesOverviewService->resolveGroup($issueGroup), $issuesOverviewService);
     }
@@ -220,6 +225,7 @@ trait IssuesControllerTrait
         IssueGroupsService $issueGroupsService,
         IssuesOverviewService $issuesOverviewService
     ): IssueGroupGetResponseDto {
+        $this->throwForbiddenUnlessIssuesAccessAllowed();
         $issueGroup = $this->findIssueGroupOfRequestOrThrow($requestDto, $issueGroupsService, $issuesOverviewService);
         return $this->buildIssueGroupResponse($issuesOverviewService->ignoreGroup($issueGroup), $issuesOverviewService);
     }
@@ -241,6 +247,7 @@ trait IssuesControllerTrait
         IssueGroupsService $issueGroupsService,
         IssuesOverviewService $issuesOverviewService
     ): IssueGroupGetResponseDto {
+        $this->throwForbiddenUnlessIssuesAccessAllowed();
         $issueGroup = $this->findIssueGroupOfRequestOrThrow($requestDto, $issueGroupsService, $issuesOverviewService);
         return $this->buildIssueGroupResponse($issuesOverviewService->reopenGroup($issueGroup), $issuesOverviewService);
     }
@@ -276,5 +283,16 @@ trait IssuesControllerTrait
         $responseDto = new IssueGroupGetResponseDto();
         $responseDto->group = IssueGroupSummary::fromIssueGroup($issueGroup, $issuesOverviewService->describeEntryPoint($issueGroup));
         return $responseDto;
+    }
+
+    /**
+     * The access check of every issues endpoint, called first by each action (before validation and any service call).
+     * Empty by default: access is what the firewall and `access_control` grant. An application whose rule is not a
+     * role (an account predicate) overrides it and throws {@see ForbiddenException} (403).
+     *
+     * @throws ForbiddenException When the current request must not reach these endpoints
+     */
+    protected function throwForbiddenUnlessIssuesAccessAllowed(): void
+    {
     }
 }

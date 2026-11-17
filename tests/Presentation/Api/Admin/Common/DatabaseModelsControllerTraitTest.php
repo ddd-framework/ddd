@@ -14,6 +14,7 @@ use DDD\Infrastructure\Exceptions\NotFoundException;
 use DDD\Presentation\Api\Admin\Common\DatabaseModels\Dtos\ApplyDiffRequestDto;
 use DDD\Presentation\Api\Admin\Common\DatabaseModels\Dtos\ApplyDiffsRequestDto;
 use DDD\Presentation\Api\Admin\Common\DatabaseModels\Dtos\DBTableDiffsGetRequestDto;
+use DDD\Tests\Presentation\Api\Admin\Common\Fixtures\FixtureForbiddingDatabaseModelsController;
 use DDD\Tests\Presentation\Api\Admin\Common\Fixtures\FixtureDatabaseModelsController;
 use DDD\Tests\Presentation\Api\Admin\Common\Fixtures\FixtureRecordingDatabaseSchemaDiffService;
 use Symfony\Component\HttpFoundation\Request;
@@ -28,6 +29,16 @@ class DatabaseModelsControllerTraitTest extends AdminControllerTraitTestCase
     protected function getFixtureControllerClass(): string
     {
         return FixtureDatabaseModelsController::class;
+    }
+
+    protected function getForbiddingFixtureControllerClass(): string
+    {
+        return FixtureForbiddingDatabaseModelsController::class;
+    }
+
+    protected function getAccessHookMethodName(): string
+    {
+        return 'throwForbiddenUnlessDatabaseModelsAccessAllowed';
     }
 
     protected function setUp(): void

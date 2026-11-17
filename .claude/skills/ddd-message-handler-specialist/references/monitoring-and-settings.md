@@ -145,4 +145,21 @@ class AdminWorkersController extends AdminController
 }
 ```
 
+**Access hook:** every action calls `throwForbiddenUnlessWorkersAccessAllowed(): void` first — before any service call and before its own checks. The default is empty. An application whose rule is an account predicate rather than a role (e.g. admin role AND not a partner account) overrides it in its controller and throws `ForbiddenException` (403). It complements `access_control`, it does not replace it: keep the role restriction on the path, add the predicate in the hook.
+
+```php
+class AdminWorkersController extends AdminController
+{
+    use WorkersControllerTrait;
+
+    protected function throwForbiddenUnlessWorkersAccessAllowed(): void
+    {
+        $account = AuthService::instance()->getAccount();
+        if ($account === null || $account->isPartnerAccount()) {
+            throw new ForbiddenException('…');   // DDD\Infrastructure\Exceptions\ForbiddenException: 403
+        }
+    }
+}
+```
+
 Routes, payloads and the screen: [admin-screen-guide.md](admin-screen-guide.md).

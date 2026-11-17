@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace DDD\Tests\Presentation\Api\Admin\Common;
 
+use DDD\Tests\Presentation\Api\Admin\Common\Fixtures\FixtureForbiddingCronsController;
 use DDD\Tests\Presentation\Api\Admin\Common\Fixtures\FixtureCronsController;
 
 class CronsControllerTraitTest extends AdminControllerTraitTestCase
@@ -11,6 +12,16 @@ class CronsControllerTraitTest extends AdminControllerTraitTestCase
     protected function getFixtureControllerClass(): string
     {
         return FixtureCronsController::class;
+    }
+
+    protected function getForbiddingFixtureControllerClass(): string
+    {
+        return FixtureForbiddingCronsController::class;
+    }
+
+    protected function getAccessHookMethodName(): string
+    {
+        return 'throwForbiddenUnlessCronsAccessAllowed';
     }
 
     public function testTheTraitMountsItsRoutesUnderTheControllerPrefix(): void

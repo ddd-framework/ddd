@@ -513,7 +513,8 @@ list with health status and runner summary, runs (page, detail with output, time
 preview, create / update / delete, activate / deactivate, run now. Run now makes the Cron due now — the next tick runs
 it through `Cron::execute()` (execution row, result, issues log); the command never runs in the request. Only commands
 marked `#[CronSchedulable]` (`DDD\Symfony\Commands\Common\Crons\CronSchedulable`) can be scheduled over HTTP. The trait
-checks no roles: restrict the path to operators. Routes, DTOs, write rules, errors:
+checks no roles: restrict the path to operators; an account predicate goes into the overridable access hook
+`throwForbiddenUnlessCronsAccessAllowed()` (called first by every action, throws `ForbiddenException`). Routes, DTOs, write rules, errors:
 [references/crons-admin-endpoints.md](references/crons-admin-endpoints.md); screen:
 [references/crons-admin-screen-guide.md](references/crons-admin-screen-guide.md).
 

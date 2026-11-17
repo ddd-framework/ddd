@@ -672,7 +672,23 @@ and asks for a restart; it never starts or scales a process. Details: `ddd-messa
 Core ships the backend of the standard admin screens as controller traits in `Presentation/Api/Admin/Common/`, with
 their DTOs in `…/Dtos/`. An application mounts each with one controller of its own that sets the path prefix, the tag
 and the access (`#[Route('/common/issues')] class AdminIssuesController extends AdminController { use
-IssuesControllerTrait; }`); the traits carry no role check, the application restricts the path.
+IssuesControllerTrait; }`); the traits carry no role check, the application restricts the path (`access_control`).
+
+Each trait has one access hook, called first by every one of its actions (before any service call and the action's
+own checks): `throwForbiddenUnlessIssuesAccessAllowed()`, `throwForbiddenUnlessDatabaseModelsAccessAllowed()`,
+`throwForbiddenUnlessCronsAccessAllowed()`, `throwForbiddenUnlessWorkersAccessAllowed()` (distinct names: one
+controller may use several traits). Empty by default; an application whose rule is an account predicate, not a role,
+overrides it and throws `ForbiddenException` (403). It complements `access_control`, it does not replace it.
+
+```php
+protected function throwForbiddenUnlessIssuesAccessAllowed(): void
+{
+    $account = AuthService::instance()->getAccount();
+    if ($account === null || $account->isPartnerAccount()) {   // admin role via access_control, AND not a partner
+        throw new ForbiddenException('Issues are not available to partner accounts');
+    }
+}
+```
 
 | Trait | Screen | Skill (admin endpoints + screen guide) |
 |---|---|---|
