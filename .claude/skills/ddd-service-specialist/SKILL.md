@@ -838,6 +838,13 @@ $downloadUrl = $exportsObjectStorage->createTemporaryUrl("reports/{$report->id}.
   application logger, so each retry is logged at level **info** (`Try #n after …ms`). An `InternalErrorException`
   therefore means the backend kept failing for ~7 s: reduce the parallelism (fewer concurrent loads, presigned URLs
   for the browser) instead of adding a retry loop on top.
+- **Timeout and retries per store** (s3 only; the filesystem driver ignores them; every operation, not only put):
+  `timeoutSeconds` → the HTTP client's `timeout` (idle time of one attempt; unset = `default_socket_timeout`, usually
+  60 s), `maxDurationSeconds` → its `max_duration` (cap of one attempt however busy; unset = none), `maxRetries` → the
+  retry count of the `RetryableHttpClient` (same `AwsRetryStrategy`; unset = 3, `0` = no retry). Env:
+  `OBJECT_STORAGE_<NAME>_TIMEOUT_SECONDS` / `_MAX_DURATION_SECONDS` / `_MAX_RETRIES`. All unset = async-aws's own
+  client, unchanged. A hanging request otherwise costs 4 × 60 s plus backoff; small objects (thumbnails) take e.g.
+  `timeoutSeconds: 5, maxRetries: 1`. Keep `maxDurationSeconds` unset for stores with large uploads.
 - **`ObjectStorageService`:** `getObjectStorage($name): ?ObjectStorage` (null without a driver; throws only for an
   incomplete store or a missing driver package), `isObjectStorageConfigured($name)`, `setObjectStorage($name, $store)`
   for tests.
@@ -846,7 +853,7 @@ $downloadUrl = $exportsObjectStorage->createTemporaryUrl("reports/{$report->id}.
   "needs the package async-aws/s3"; driver `filesystem` → `FilesystemObjectStorage` (tests, development; a key
   leaving the root is refused).
 - **Configuration:** `config/app/Common/ObjectStorage.php` →
-  `['stores' => ['<name>' => ['driver', 'endpoint', 'region', 'bucket', 'pathStyle', 'prefix', 'path']]]`;
+  `['stores' => ['<name>' => ['driver', 'endpoint', 'region', 'bucket', 'pathStyle', 'prefix', 'path', 'timeoutSeconds', 'maxDurationSeconds', 'maxRetries']]]`;
   `OBJECT_STORAGE_<NAME>_<SETTING>` overrides per host (NAME upper case, other characters `_`); credentials
   `OBJECT_STORAGE_<NAME>_ACCESS_KEY` / `_SECRET_KEY` from the environment only. Hetzner: endpoint
   `https://<location>.your-objectstorage.com`, region = location; R2: region `auto`; MinIO / SeaweedFS: `pathStyle: true`;

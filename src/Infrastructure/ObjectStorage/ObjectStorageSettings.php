@@ -38,6 +38,9 @@ class ObjectStorageSettings extends ValueObject
     public const string SETTING_PATH_STYLE = 'PATH_STYLE';
     public const string SETTING_PREFIX = 'PREFIX';
     public const string SETTING_PATH = 'PATH';
+    public const string SETTING_TIMEOUT_SECONDS = 'TIMEOUT_SECONDS';
+    public const string SETTING_MAX_DURATION_SECONDS = 'MAX_DURATION_SECONDS';
+    public const string SETTING_MAX_RETRIES = 'MAX_RETRIES';
 
     public const string DEFAULT_REGION = 'us-east-1';
 
@@ -59,6 +62,12 @@ class ObjectStorageSettings extends ValueObject
         public readonly string $prefix = '',
         /** @var string|null Filesystem: the root directory */
         public readonly ?string $path = null,
+        /** @var float|null S3: idle timeout of one attempt in seconds (no byte sent or received); null = the HTTP client's default (`default_socket_timeout`, usually 60) */
+        public readonly ?float $timeoutSeconds = null,
+        /** @var float|null S3: the longest one attempt may take in seconds, however busy; null = unbounded */
+        public readonly ?float $maxDurationSeconds = null,
+        /** @var int|null S3: retries after a failed attempt; 0 = none; null = async-aws's default (3) */
+        public readonly ?int $maxRetries = null,
     ) {
         parent::__construct();
     }
@@ -80,7 +89,27 @@ class ObjectStorageSettings extends ValueObject
             pathStyle: in_array(strtolower(static::readSetting($storeName, self::SETTING_PATH_STYLE, 'pathStyle') ?? 'false'), ['1', 'true', 'yes', 'on'], true),
             prefix: $prefix !== '' ? trim($prefix, '/') . '/' : '',
             path: static::readSetting($storeName, self::SETTING_PATH, 'path'),
+            timeoutSeconds: static::readPositiveFloatSetting($storeName, self::SETTING_TIMEOUT_SECONDS, 'timeoutSeconds'),
+            maxDurationSeconds: static::readPositiveFloatSetting($storeName, self::SETTING_MAX_DURATION_SECONDS, 'maxDurationSeconds'),
+            maxRetries: ($maxRetries = static::readSetting($storeName, self::SETTING_MAX_RETRIES, 'maxRetries')) !== null
+                && ctype_digit($maxRetries) ? (int)$maxRetries : null,
         );
+    }
+
+    /** True when the store sets a timeout or a retry count, i.e. the S3 client needs its own HTTP client */
+    public function hasHttpClientSettings(): bool
+    {
+        return $this->timeoutSeconds !== null || $this->maxDurationSeconds !== null || $this->maxRetries !== null;
+    }
+
+    /** A number of seconds above 0, else null (unset, not numeric, 0 or negative: the default applies) */
+    protected static function readPositiveFloatSetting(string $storeName, string $setting, string $configKey): ?float
+    {
+        $value = static::readSetting($storeName, $setting, $configKey);
+        if ($value === null || !is_numeric($value) || (float)$value <= 0) {
+            return null;
+        }
+        return (float)$value;
     }
 
     public function isConfigured(): bool

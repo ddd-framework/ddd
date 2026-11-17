@@ -6,11 +6,16 @@ namespace DDD\Infrastructure\ObjectStorage;
 
 use AsyncAws\S3\Exception\NoSuchKeyException;
 use AsyncAws\S3\Input\GetObjectRequest;
+use AsyncAws\Core\AwsError\XmlAwsErrorFactory;
+use AsyncAws\Core\HttpClient\AwsRetryStrategy;
 use AsyncAws\S3\S3Client;
 use DateTimeImmutable;
 use DDD\Infrastructure\Base\DateTime\DateTime;
 use DDD\Infrastructure\Exceptions\InternalErrorException;
 use Psr\Log\LoggerInterface;
+use Symfony\Component\HttpClient\HttpClient;
+use Symfony\Component\HttpClient\RetryableHttpClient;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Throwable;
 
 /**
@@ -20,10 +25,16 @@ use Throwable;
  *
  * async-aws retries a throttled or failed request itself (3 retries, 1 s / 2 s / 4 s: transport errors, 429, 5xx, and
  * SlowDown / Throttling answers); with a logger each retry is logged at level info ("Try #n after …ms").
+ *
+ * Per store (see {@see ObjectStorageSettings}): `timeoutSeconds` (the HTTP client's `timeout`, idle time of one attempt),
+ * `maxDurationSeconds` (its `max_duration`) and `maxRetries` (the RetryableHttpClient's retry count) apply to every
+ * operation. Unset, async-aws builds its own client: default socket timeout (usually 60 s), 3 retries.
  */
 class S3CompatibleObjectStorage implements ObjectStorage
 {
     public const string REQUIRED_PACKAGE = 'async-aws/s3';
+    /** async-aws's own retry count, kept when a store sets only a timeout */
+    public const int DEFAULT_MAX_RETRIES = 3;
 
     protected ?S3Client $s3Client = null;
 
@@ -146,7 +157,39 @@ class S3CompatibleObjectStorage implements ObjectStorage
             'accessKeyId' => $this->objectStorageSettings->accessKey,
             'accessKeySecret' => $this->objectStorageSettings->secretKey,
             'pathStyleEndpoint' => $this->objectStorageSettings->pathStyle ? 'true' : 'false',
-        ], static fn(mixed $value): bool => $value !== null), logger: $this->logger);
+        ], static fn(mixed $value): bool => $value !== null), httpClient: $this->createHttpClient(), logger: $this->logger);
+    }
+
+    /**
+     * The HTTP client for the S3 client; null = async-aws builds its default (no own timeout, 3 retries). With a
+     * timeout or retry setting: the base client with `timeout` / `max_duration` as default options, wrapped in the same
+     * retry strategy async-aws uses (1 s / 2 s / 4 s, S3 error codes) with the store's retry count.
+     */
+    protected function createHttpClient(): ?HttpClientInterface
+    {
+        if (!$this->objectStorageSettings->hasHttpClientSettings()) {
+            return null;
+        }
+        $httpClientOptions = array_filter([
+            'timeout' => $this->objectStorageSettings->timeoutSeconds,
+            'max_duration' => $this->objectStorageSettings->maxDurationSeconds,
+        ], static fn(mixed $value): bool => $value !== null);
+        $httpClient = $this->createBaseHttpClient();
+        if ($httpClientOptions !== []) {
+            $httpClient = $httpClient->withOptions($httpClientOptions);
+        }
+        return new RetryableHttpClient(
+            $httpClient,
+            new AwsRetryStrategy(AwsRetryStrategy::DEFAULT_RETRY_STATUS_CODES, 1000, 2.0, 0, 0.1, new XmlAwsErrorFactory()),
+            $this->objectStorageSettings->maxRetries ?? self::DEFAULT_MAX_RETRIES,
+            $this->logger
+        );
+    }
+
+    /** The transport under the timeout options and the retries; the method a test overrides with a mock client */
+    protected function createBaseHttpClient(): HttpClientInterface
+    {
+        return HttpClient::create();
     }
 
     /** The key inside the bucket: the store's prefix plus the caller's key */
