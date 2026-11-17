@@ -653,7 +653,9 @@ $translated = __('greeting.hello', 'de', 'DE', 'FORMAL', ['%name%' => 'Max']);
 
 ### Cron Jobs
 
-Entities `Cron` and `CronExecution` in `Domain/Common/Entities/Crons/` provide scheduled task execution via Symfony console commands. Managed by `app:crons:execute` (the tick), `app:crons:list`, `app:crons:upsert` (create/edit one Cron), `app:crons:activate` / `app:crons:deactivate` (switch Crons by name; activation re-anchors the next slot via `Cron::activate()`) and `app:crons:executions` (run history).
+Entities `Cron` and `CronExecution` in `Domain/Common/Entities/Crons/` provide scheduled task execution via Symfony console commands. Managed by `app:crons:execute` (the tick), `app:crons:list`, `app:crons:upsert` (create/edit one Cron), `app:crons:activate` / `app:crons:deactivate` (switch Crons by name; activation re-anchors the next slot via `Cron::activate()`) and `app:crons:executions` (run history). The admin endpoints (list, executions, timeline, commands, schedule preview,
+CRUD, activate, deactivate, run now through the tick's execution path) are `CronsControllerTrait`
+(`Presentation/Api/Admin/Common/Crons/`). Details: `ddd-cli-command-specialist`.
 
 ### Workers
 
@@ -664,6 +666,20 @@ worker processes, queue samples and message runs in `Domain/Common/Entities/Work
 reading commands `app:workers:overview` / `transport` / `history` / `processes` / `runs` / `queues` / `stats`
 (`--format=json`: the payload of the matching admin endpoint) and the admin endpoints of `WorkersControllerTrait` (`Presentation/Api/Admin/Common/Workers/`). The framework observes
 and asks for a restart; it never starts or scales a process. Details: `ddd-message-handler-specialist`.
+
+### Admin Endpoint Traits
+
+Core ships the backend of the standard admin screens as controller traits in `Presentation/Api/Admin/Common/`, with
+their DTOs in `…/Dtos/`. An application mounts each with one controller of its own that sets the path prefix, the tag
+and the access (`#[Route('/common/issues')] class AdminIssuesController extends AdminController { use
+IssuesControllerTrait; }`); the traits carry no role check, the application restricts the path.
+
+| Trait | Screen | Skill (admin endpoints + screen guide) |
+|---|---|---|
+| `WorkersControllerTrait` | Messenger workers | `ddd-message-handler-specialist` |
+| `IssuesControllerTrait` | error groups of the issues registry: list, trend, details, resolve / ignore / reopen | `ddd-issues-log-specialist` |
+| `DatabaseModelsControllerTrait` | schema diff and its applies (all guards kept), tables SQL, generated model code | `ddd-database-schema-diff-specialist` |
+| `CronsControllerTrait` | Crons and their executions | `ddd-cli-command-specialist` |
 
 ### Object Storage
 

@@ -15,6 +15,7 @@ A Domain-Driven Design entity framework built on top of Symfony 7.3 and Doctrine
 - **Multi-Language Support** via `#[Translatable]` with JSON storage, fulltext search indexes, and language/country/writing-style context
 - **Change History** -- automatic `created`/`updated` timestamps via `ChangeHistoryTrait`
 - **REST Presentation Layer** -- `HttpController`, typed DTOs (Request/Response), OpenAPI 3.0 documentation, request caching, specialized response types (Excel, PDF, ZIP, Image, HTML, Redirect)
+- **Admin Endpoint Traits** -- the backend of standard admin screens, mounted by an application with one controller each: `WorkersControllerTrait` (Messenger workers), `IssuesControllerTrait` (error groups of the issues registry), `DatabaseModelsControllerTrait` (schema diff and its applies), `CronsControllerTrait` (Crons and their executions)
 - **Async Processing** -- Symfony Messenger integration with `AppMessage`/`AppMessageHandler` base classes, auth context propagation, and workspace routing
 - **Module System** -- Composer packages self-register as DDD modules with automatic service discovery and entity inclusion
 - **CLI Commands** -- Console command infrastructure with admin auth context, batch processing, progress tracking, and cron job management

@@ -1,6 +1,6 @@
 ---
 name: ddd-database-schema-diff-specialist
-description: "Operate the DDD live-vs-target schema diff: diff the entity-derived against the live schema on MariaDB and PostgreSQL, apply drift fixes per table or in bulk, build the admin screen, set up a new PostgreSQL database (app:db:postgres:install-extensions-collation-functions, pre-deploy hook), and leave a module's tables out of an app or name them (Base.Repo.database.excludedTables, tableNames). Covers the diff value objects, the 13-phase SQL assembler, false-positive normalisation, VECTOR resets, severity, which side is wrong, the large-table production guard (bypass CLI/messenger only), the diff-signature gate and apply lock, the admin-screen guide, pt-online-schema-change FK renames, and troubleshooting (openApi 500, DIFF_SIGNATURE_MISMATCH, DIFF_APPLY_LOCK_BUSY, stale caches). Use when excluding or renaming a module's tables, setting up a PostgreSQL database, computing or applying schema diffs, debugging false-positive MODIFYs, deciding entity-vs-DB, wiring the admin screen, or reasoning about pt-osc."
+description: "Operate the DDD live-vs-target schema diff: diff the entity-derived against the live schema on MariaDB/PostgreSQL, apply drift fixes per table or in bulk, mount the admin endpoints (DatabaseModelsControllerTrait), set up a new PostgreSQL database (app:db:postgres:install-extensions-collation-functions, pre-deploy hook), and leave a module's tables out of an app or name them (Base.Repo.database.excludedTables, tableNames). Covers diff value objects, the 13-phase SQL assembler, false-positive normalisation, VECTOR resets, severity, which side is wrong, the large-table production guard (bypass CLI/messenger only), the diff-signature gate and apply lock, pt-osc FK renames, and troubleshooting (openApi 500, DIFF_SIGNATURE_MISMATCH, DIFF_APPLY_LOCK_BUSY, stale caches). Use when excluding or renaming a module's tables, setting up a PostgreSQL database, computing or applying schema diffs, debugging false-positive MODIFYs, deciding entity-vs-DB, wiring the admin endpoints or screen, or reasoning about pt-osc."
 metadata:
   author: mgamadeus
   version: "2.1.1"
@@ -682,102 +682,68 @@ Some apps do this. **Not required** — a flat `string[]` is allowed under AGENT
 
 ---
 
-## Building the Admin Interface in a Consuming App
+## Admin Endpoints — `DatabaseModelsControllerTrait`
 
-This is the boilerplate that ships in every project's `App\` namespace. Same code regardless of project — only namespaces change.
-
-### Step 0. Pre-flight
-
-- Confirm the framework version is ≥ `mgamadeus/ddd` v2.20.0. v2.20 ships the final typed-VO surface (typed `DBSqlStatements` / `DBCollationChange` / `DBExpectedDiffSignatures` / `DBCopyForcingOperations` / `DBTableSizeStats` on `DBTableDiff`, typed `DBCanonical{Columns,VirtualColumns,Indexes,ForeignKeys,Triggers}` on `DBCanonicalTable`). Earlier versions either lack the signature gate (< v2.18) or still carry array-shaped fields the typed admin DTOs can't bind (v2.18, v2.19 partial).
-- Confirm the project follows the `App\Presentation\Api\Admin\…` controller convention and uses the DDD endpoint specialist's `RequestDto` / `RestResponseDto` pattern.
-
-### Step 1. Backend — controller
-
-Create or extend `App\Presentation\Api\Admin\Common\Controller\DatabaseModelsController` with three methods. Class-level attributes stay as in any other admin controller: `#[Route('/common/databaseModels')]`, `#[Tag(group: 'Common', name: 'Database Models ', …)]`, `#[LogRequest(…)]`, behind `ROLE_ADMIN`.
-
-The controller passes the request DTO's typed signature set and production-guard flag straight through to the service. The service does its own in-lock recompute against the live DB and refuses execution if either gate trips — the controller is intentionally a thin pass-through.
+Core ships the backend of the schema-diff screen. An application mounts it with one controller of its own, which sets
+the path prefix, the tag and the access:
 
 ```php
-#[Get('/diff')]
-#[Summary('DatabaseModels Diff')]
-public function diff(
-    DBTableDiffsGetRequestDto $requestDto,
-    DatabaseSchemaDiffService $databaseSchemaDiffService
-): DBTableDiffsGetResponseDto {
-    $responseDto = new DBTableDiffsGetResponseDto();
-    $responseDto->diffs = $databaseSchemaDiffService->computeDiffs();
-    return $responseDto;
-}
+use DDD\Presentation\Api\Admin\Common\DatabaseModels\DatabaseModelsControllerTrait;
 
-#[Post('/applyDiffs')]
-#[Summary('DatabaseModels Apply All Diffs')]
-public function applyDiffs(
-    ApplyDiffsRequestDto $requestDto,
-    DatabaseSchemaDiffService $databaseSchemaDiffService
-): DBTableDiffsGetResponseDto {
-    // Scope filter — flat string[] is the simple-list shape AGENTS.md allows.
-    $diffs = $databaseSchemaDiffService->computeDiffs();
-    if ($requestDto->sqlTableNames !== null) {
-        $filtered = new DBTableDiffs();
-        foreach ($requestDto->sqlTableNames as $tableName) {
-            $diff = $diffs->getDiffByTableName($tableName);
-            if ($diff !== null) {
-                $filtered->add($diff);
-            }
-        }
-        $diffs = $filtered;
-    }
-
-    // Signature gate pass-through. The HTTP frontend always sends $expectedDiffSignatures
-    // populated; CLI / messenger callers leave it null. bypassProductionGuard is hard-coded
-    // false — the guard is not bypassable via HTTP by design (no DTO field exists for it).
-    $refreshed = $databaseSchemaDiffService->applyDiffs(
-        $diffs,
-        $requestDto->disableForeignKeyChecks,
-        false,
-        $requestDto->expectedDiffSignatures
-    );
-
-    $responseDto = new DBTableDiffsGetResponseDto();
-    $responseDto->diffs = $refreshed;
-    return $responseDto;
-}
-
-#[Post('/applyDiff')]
-#[Summary('DatabaseModels Apply Single Diff')]
-public function applyDiff(
-    ApplyDiffRequestDto $requestDto,
-    DatabaseSchemaDiffService $databaseSchemaDiffService
-): DBTableDiffsGetResponseDto {
-    $diffs = $databaseSchemaDiffService->computeDiffs();
-    $diff = $diffs->getDiffByTableName($requestDto->sqlTableName);
-    if ($diff === null || $diff->changeType === DBTableDiff::CHANGE_TYPE_NO_CHANGE) {
-        throw new NotFoundException("No pending diff for table `$requestDto->sqlTableName`");
-    }
-    $refreshed = $databaseSchemaDiffService->applyDiff(
-        $diff,
-        $requestDto->disableForeignKeyChecks,
-        false, // bypassProductionGuard — not exposed via HTTP by design
-        $requestDto->expectedDiffSignature
-    );
-    $responseDto = new DBTableDiffsGetResponseDto();
-    $responseDto->diffs = $refreshed;
-    return $responseDto;
+#[Route('/common/databaseModels')]
+#[Tag(group: 'Common', name: 'DatabaseModels', description: 'Database schema diff and generated models')]
+class AdminDatabaseModelsController extends AdminController
+{
+    use DatabaseModelsControllerTrait;
 }
 ```
 
-### Step 2. Backend — DTOs
+| Method and path | Request DTO | Response | Writes |
+|---|---|---|---|
+| `GET /diff` | `DBTableDiffsGetRequestDto` (no parameters) | `DBTableDiffsGetResponseDto` → `diffs` | — |
+| `POST /applyDiffs` | `ApplyDiffsRequestDto`: `sqlTableNames` (`string[]`, null = all), `disableForeignKeyChecks` (true), `expectedDiffSignatures` | `DBTableDiffsGetResponseDto` (recomputed) | schema |
+| `POST /applyDiff` | `ApplyDiffRequestDto`: `sqlTableName`, `disableForeignKeyChecks` (true), `expectedDiffSignature` | `DBTableDiffsGetResponseDto` (recomputed) | schema |
+| `GET /generateDatabaseTables` | — | text/plain: the SQL of every table (excluded tables left out), never executed | — (refused like a write) |
+| `GET /generateDoctrineModels` | — | text/plain: the generated model code of every DB entity; nothing written | — |
+| `GET /generateForEntity` | `DoctrineModelForEntityGetRequestDto`: `entityName` (short or fully qualified; ambiguous = 400, unknown = 404) | text/plain: one entity's model code; nothing written | — |
 
-In `App\Presentation\Api\Admin\Common\Dtos\DatabaseModels\`. **DTO discipline**: every field is a typed scalar, enum, typed VO, or `ObjectSet` — never `array<…, struct>` (per AGENTS.md). The one place a plain `array` appears here is `ApplyDiffsRequestDto::$sqlTableNames`, which is a flat `string[]` of table names — the simple-list shape explicitly allowed.
+DTOs: `DDD\Presentation\Api\Admin\Common\DatabaseModels\Dtos\`. What the trait adds on top of the service:
 
-| File | Fields |
-|---|---|
-| `DBTableDiffsGetRequestDto.php` | Empty `RequestDto` — no query params. |
-| `DBTableDiffsGetResponseDto.php` | Extends `RestResponseDto`. `public DBTableDiffs $diffs;` with `#[Parameter(in: Parameter::RESPONSE, required: true)]`. |
-| `ApplyDiffsRequestDto.php` | `public ?array $sqlTableNames = null;` (`#[Parameter(in: Parameter::BODY, required: false)]`, `string[]` — scope filter), `public bool $disableForeignKeyChecks = true;`, `public ?DBExpectedDiffSignatures $expectedDiffSignatures = null;`. **Do NOT add a `bypassProductionGuard` field** — the production guard is programmatic-only by design (see the guard message at `DatabaseSchemaDiffService:313`). |
-| `ApplyDiffRequestDto.php` | `public string $sqlTableName;` (required), `public bool $disableForeignKeyChecks = true;`, `public ?string $expectedDiffSignature = null;`. **No `bypassProductionGuard` field** — same reason. |
+- **Table list (`applyDiffs`):** `sqlTableNames` must be null or a non-empty list of non-empty names (else 400). A listed
+  table without a pending diff (unknown, or `NO_CHANGE`) is `[DIFF_SIGNATURE_MISMATCH]` naming the tables — applying only
+  the still pending part of a stale selection would report success. `expectedDiffSignatures` is narrowed to the listed
+  tables, because the service requires the signatures to cover exactly the applied diffs.
+- **One table (`applyDiff`):** a table without a pending diff is `[DIFF_SIGNATURE_MISMATCH]` when the caller sent the
+  signature it saw (applied meanwhile), else 404.
+- **Guards kept:** the signature gate and the apply lock run inside the service; the production guard's bypass is
+  passed as `false` and no request DTO has a field for it — a large-table copy-forcing change runs from a console
+  command or a message handler.
+- **Schema writes disabled:** `applyDiff`, `applyDiffs` and `generateDatabaseTables` answer 403 on a process that shares
+  another stage's database: `APP_SCHEMA_WRITES_DISABLED=1` in the process environment or `.env`. An application with its
+  own signal (e.g. a development workspace pointed at the production database) overrides
+  `areSchemaWritesDisabled(): bool` in its controller.
+- **Model code is a preview:** the routes never write model files; `app:generate-doctrine-models-for-entities` does.
+- **Access:** no role check in the trait. The schema is the most dangerous admin surface: restrict the path to the
+  highest admin role (`access_control` in `security.yaml`, or the application's admin base controller).
 
-> **What NOT to do.** A `?array $expectedSignatures = null` of shape `array<string, string>` would deserialize fine and "work" — and would violate AGENTS.md. The typed `DBExpectedDiffSignatures` Set ships in Core for this exact reason; consumers must use it. Same applies to a `?array $copyForcingOperations` style field on any custom response DTO — use `DBCopyForcingOperations` instead.
+The screen on top: [references/admin-screen-guide.md](references/admin-screen-guide.md). The steps below cover the
+frontend contract in detail.
+
+## Building the Admin Interface in a Consuming App
+
+### Step 0. Pre-flight
+
+- The trait above needs the Core release that ships it; the typed-VO wire surface it returns exists since v2.20.0.
+- Mount the trait as shown above; a controller of an older release with its own DTOs is replaced by it (the DTOs move
+  to `DDD\Presentation\Api\Admin\Common\DatabaseModels\Dtos\`, so the generated SDK model names change).
+
+### Steps 1–2. Backend — controller and DTOs
+
+The trait is the controller and the DTOs. **DTO discipline** if an application extends them: every field is a typed
+scalar, enum, typed VO or `ObjectSet` — the one plain `array` is `ApplyDiffsRequestDto::$sqlTableNames`, a flat
+`string[]`. Never add a `bypassProductionGuard` field.
+
+> **What NOT to do.** A `?array $expectedSignatures = null` of shape `array<string, string>` would deserialize fine and "work" — and would violate AGENTS.md. The typed `DBExpectedDiffSignatures` Set ships in Core for this exact reason. Same applies to a `?array $copyForcingOperations` style field on any custom response DTO — use `DBCopyForcingOperations` instead.
 
 ### Step 2a. Wiring the signature gate (frontend ↔ backend contract)
 
@@ -797,7 +763,8 @@ const expectedMap = diffs.elements.map(d => ({
 }));
 
 await applyDiffs({
-  appPresentationApiAdminCommonDtosDatabaseModelsApplyDiffsRequestDto: {
+  // the body key is generated from the DTO's class name (DDD\Presentation\Api\Admin\Common\DatabaseModels\Dtos\ApplyDiffsRequestDto)
+  [applyDiffsBodyKey]: {
     sqlTableNames: selectedTables, // or null for "all"
     disableForeignKeyChecks: true,
     // no bypassProductionGuard field — the guard is not exposed via HTTP by design
@@ -836,9 +803,9 @@ Lock-busy error: when two admins apply at once, the second receives `[DIFF_APPLY
 
 ### Step 3. Backend — wiring
 
-- **Routes** — auto-discovered from `#[Route]`/`#[Get]`/`#[Post]`. No `routes.yaml` edits.
+- **Routes** — auto-discovered from the controller's `#[Route]` and the trait's `#[Get]`/`#[Post]`. No `routes.yaml` edits.
 - **DI** — `DatabaseSchemaDiffService` and `DatabaseSchemaIntrospectionService` are auto-discovered by the existing `services.yaml` glob covering `DDD\Domain\Common\Services\` mapped to `vendor/mgamadeus/ddd/src/Domain/Common/Services/*`.
-- **Auth** — admin routes are already behind `ROLE_ADMIN` via the existing AuthGuard.
+- **Auth** — admin routes are behind the admin firewall; restrict this path further to the highest admin role.
 
 ### Step 4. Backend — `php -l` every new file. **Block** if any fail.
 
@@ -846,16 +813,16 @@ Lock-busy error: when two admins apply at once, the second receives `[DIFF_APPLY
 
 ```bash
 curl -sf "https://<env>/api/admin/documentation/openApi" \
-  | jq '.paths | keys[] | select(test("databaseModels/(diff|applyDiff)"))'
+  | jq '.paths | keys[] | select(test("databaseModels/"))'
 ```
 
-Expect three lines: `/api/admin/common/databaseModels/{diff,applyDiff,applyDiffs}`. If HTTP 500: the autodocumenter is choking, typically because a rich DDD-type field is missing `#[Ignore]`. Cross-check `targetColumn` / `targetIndex` / `targetForeignKey` / `targetTrigger` / `targetVirtualColumn` fields on the diff VOs in the framework. **Block** until reachable.
+Expect six lines: `/api/admin/common/databaseModels/{diff,applyDiff,applyDiffs,generateDatabaseTables,generateDoctrineModels,generateForEntity}`. If HTTP 500: the autodocumenter is choking, typically because a rich DDD-type field is missing `#[Ignore]`. Cross-check `targetColumn` / `targetIndex` / `targetForeignKey` / `targetTrigger` / `targetVirtualColumn` fields on the diff VOs in the framework. **Block** until reachable.
 
 ### Step 6. Frontend — SDK regen
 
 **Never write frontend code against this feature without first regenerating the SDK.** Specific reasons:
 - Response DTO carries deeply nested generics (`DBTableDiffs → DBTableDiff[] → 5 child diff sets → canonical VOs`). Hand-typing is error-prone and rots fast.
-- The mutation body key is the long fully-qualified DTO name (e.g. `appPresentationApiAdminCommonDtosDatabaseModelsApplyDiffRequestDto`). Not guessable.
+- The mutation body key is generated from the DTO's fully qualified class name (with the trait: `DDD\Presentation\Api\Admin\Common\DatabaseModels\Dtos\ApplyDiffRequestDto`). Read it from the generated API file, never guess it.
 - RTK Query tag wiring depends on generated `*Enhanced.ts` — missing the regen means apply mutations don't refresh the list.
 
 Project-specific regen command — typically:
@@ -921,7 +888,7 @@ Apply call (note the long body key from RTK Query codegen):
 
 ```tsx
 await applyDiff({
-  appPresentationApiAdminCommonDtosDatabaseModelsApplyDiffRequestDto: {
+  [applyDiffBodyKey]: {   // the generated key of ApplyDiffRequestDto
     sqlTableName: tableName,
     disableForeignKeyChecks: true,
   },

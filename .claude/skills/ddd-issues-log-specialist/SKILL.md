@@ -1,9 +1,9 @@
 ---
 name: ddd-issues-log-specialist
-description: "Log, cluster, ship and track errors with the issues log: IssuesLogService::logThrowable (log-once) and logClientIssue (browser / Node / React Native errors, section WEB), sinks (file/stderr/none, ECS JSON), capture, redaction, group / issue hashes; the registry job over Loki, Elasticsearch / OpenSearch or Sentry (environments, workspaces, seed mode, regressions, Slack alerts, health); agent CLI app:issues:list / show / search / resolve / trend --format=json; RuntimeErrorsService, app:runtime-errors:* (ES runtime-error dashboard); app:issues:forward-sentry; admin boilerplate incl. error drawer (frames, causes, job fields); DevOps examples. Use when logging an exception, reporting frontend or mobile errors, replacing Sentry, nobody sees production errors, configuring where errors or alerts go, shipping logs, errors logged twice, one bug in many groups, fixing an environment's errors as an agent, querying runtime errors in Elasticsearch, forwarding to Sentry, or building an issues admin screen or error drawer."
+description: "Log, cluster, ship and track errors with the issues log: IssuesLogService::logThrowable (log-once) and logClientIssue (browser / Node / React Native errors), sinks (file/stderr/none, ECS JSON), capture, redaction, group / issue hashes; the registry job over Loki, Elasticsearch / OpenSearch or Sentry (app:issues:forward-sentry; environments, seed mode, regressions, Slack alerts, health); agent CLI app:issues:list / show / search / resolve / trend --format=json; app:runtime-errors:* (ES runtime-error dashboard); admin endpoints IssuesControllerTrait (list, trend, details, resolve / ignore / reopen) with screen guide and error drawer. Use when logging an exception, reporting frontend or mobile errors, replacing Sentry, nobody sees production errors, configuring where errors or alerts go, shipping logs, errors logged twice, one bug in many groups, fixing an environment's errors as an agent, querying runtime errors in Elasticsearch, forwarding to Sentry, or mounting an issues admin API or building its screen."
 metadata:
   author: mgamadeus
-  version: "1.7.0"
+  version: "1.8.0"
   framework: mgamadeus/ddd
 ---
 
@@ -609,171 +609,47 @@ php bin/console app:issues:search --since=5m --format=json                      
 registry watches it, and always `app:issues:search --workspace=mgn --since=30m --format=json` straight from the
 backend (from any environment's tooling, prod included).
 
-## Admin UI — controller, DTO, list
+## Admin endpoints — `IssuesControllerTrait`
 
-The registry is application data; an admin screen is a normal DDD admin endpoint in the application (conventions in
-`ddd-endpoint-specialist`; `AdminController` is the application's admin base). Boilerplate:
+The framework ships the issues endpoints of an admin API; an application mounts them with one controller of its own,
+which sets the path prefix, the tag and the access (conventions in `ddd-endpoint-specialist`):
 
 ```php
-#[Route('/admin/issues')]
-#[Tag(group: 'Admin', name: 'Issues', description: 'Production error groups')]
+use DDD\Presentation\Api\Admin\Common\Issues\IssuesControllerTrait;
+
+#[Route('/common/issues')]
+#[Tag(group: 'Common', name: 'Issues', description: 'Error groups of the issues registry')]
 class AdminIssuesController extends AdminController
 {
-    #[Get('/groups')]
-    #[Summary('Issue Groups List')]
-    public function listGroups(
-        IssueGroupsGetRequestDto &$requestDto,
-        IssueGroupsService $issueGroupsService
-    ): IssueGroupsGetResponseDto {
-        $responseDto = new IssueGroupsGetResponseDto();
-        $responseDto->issueGroups = $issueGroupsService->listGroups(new IssueGroupsFilter(
-            status: $requestDto->status,
-            environment: $requestDto->environment,
-            newSince: $requestDto->newSince,
-            release: $requestDto->release,
-            limit: $requestDto->limit ?? 50,
-        ));
-        // the environment switch and the status tabs: counts per environment and status
-        $responseDto->statusCounts = $issueGroupsService->countGroupsByEnvironmentAndStatus();
-        return $responseDto;
-    }
-
-    /** The chart above the list: errors over time, the environment switch's environment or all */
-    #[Get('/trend')]
-    #[Summary('Issues Trend')]
-    public function trend(IssuesTrendGetRequestDto &$requestDto, IssuesTrendService $issuesTrendService): IssuesTrendGetResponseDto
-    {
-        $interval = new TimeInterval(DateTime::fromTimestamp(time() - ($requestDto->hours ?? 24) * 3600), DateTime::fromTimestamp(time()));
-        $responseDto = new IssuesTrendGetResponseDto();
-        $responseDto->trend = $issuesTrendService->getTrend($requestDto->environment, null, $interval);
-        return $responseDto;
-    }
-
-    /** The chart in a group's drawer */
-    #[Get('/groups/{groupHash}/trend')]
-    #[Summary('Issue Group Trend')]
-    public function groupTrend(IssueGroupTrendGetRequestDto &$requestDto, IssuesTrendService $issuesTrendService): IssuesTrendGetResponseDto
-    {
-        $interval = new TimeInterval(DateTime::fromTimestamp(time() - ($requestDto->hours ?? 24 * 7) * 3600), DateTime::fromTimestamp(time()));
-        $responseDto = new IssuesTrendGetResponseDto();
-        $responseDto->trend = $issuesTrendService->getTrend($requestDto->environment, $requestDto->groupHash, $interval);
-        return $responseDto;
-    }
-
-    #[Get('/groups/{groupHash}')]
-    #[Summary('Issue Group Details')]
-    public function getGroup(
-        IssueGroupGetRequestDto &$requestDto,
-        IssueGroupsService $issueGroupsService
-    ): IssueGroupGetResponseDto {
-        $issueGroup = $issueGroupsService->findByGroupHash($requestDto->groupHash, $requestDto->environment)
-            ?? throw new NotFoundException('Issue group not found');
-        $issueGroup->issues->getElements();   // loads the LazyLoad issues: the cause per entry point
-        $responseDto = new IssueGroupGetResponseDto();
-        $responseDto->issueGroup = $issueGroup;
-        return $responseDto;
-    }
-
-    #[Post('/groups/{groupHash}/resolve')]
-    #[Summary('Issue Group Resolve')]
-    public function resolveGroup(
-        IssueGroupGetRequestDto &$requestDto,
-        IssueGroupsService $issueGroupsService
-    ): IssueGroupGetResponseDto {
-        $issueGroup = $issueGroupsService->findByGroupHash($requestDto->groupHash, $requestDto->environment)
-            ?? throw new NotFoundException('Issue group not found');
-        $responseDto = new IssueGroupGetResponseDto();
-        $responseDto->issueGroup = $issueGroupsService->resolve($issueGroup);   // ignore() / reopen() alike
-        return $responseDto;
-    }
-}
-
-class IssueGroupsGetRequestDto extends RequestDto
-{
-    /** @var string|null The environment switch (prod, testing, mgn, …); null = all */
-    #[Parameter(in: Parameter::QUERY)]
-    public ?string $environment = null;
-
-    /** @var string|null OPEN, RESOLVED or IGNORED */
-    #[Parameter(in: Parameter::QUERY)]
-    #[Choice(choices: IssueGroup::STATUSES)]
-    public ?string $status = null;
-
-    /** @var DateTime|null Registered at or after */
-    #[Parameter(in: Parameter::QUERY)]
-    public ?DateTime $newSince = null;
-
-    #[Parameter(in: Parameter::QUERY)]
-    public ?string $release = null;
-
-    #[Parameter(in: Parameter::QUERY)]
-    public ?int $limit = null;
-}
-
-class IssueGroupGetRequestDto extends RequestDto
-{
-    /** @var string error.group_hash of the group */
-    #[Parameter(in: Parameter::PATH, required: true)]
-    public string $groupHash;
-
-    /** @var string The group's environment (one hash is one group per environment) */
-    #[Parameter(in: Parameter::QUERY, required: true)]
-    public string $environment;
-}
-
-class IssuesTrendGetRequestDto extends RequestDto
-{
-    /** @var string|null The environment switch; null = all environments summed */
-    #[Parameter(in: Parameter::QUERY)]
-    public ?string $environment = null;
-
-    /** @var int|null Window in hours (default 24); the step follows (1m … 6h) */
-    #[Parameter(in: Parameter::QUERY)]
-    public ?int $hours = null;
-}
-
-class IssueGroupTrendGetRequestDto extends IssuesTrendGetRequestDto
-{
-    #[Parameter(in: Parameter::PATH, required: true)]
-    public string $groupHash;
-}
-
-class IssuesTrendGetResponseDto extends RestResponseDto
-{
-    /** @var DateTimeValueSequence Gap-free points {x, y}, stepSeconds and interval */
-    #[Parameter(in: Parameter::RESPONSE, required: true)]
-    public DateTimeValueSequence $trend;
-}
-
-class IssueGroupsGetResponseDto extends RestResponseDto
-{
-    #[Parameter(in: Parameter::RESPONSE, required: true)]
-    public IssueGroups $issueGroups;
-
-    /** @var IssueGroupStatusCounts Groups per environment and status: the switch and the tab badges */
-    #[Parameter(in: Parameter::RESPONSE, required: true)]
-    public IssueGroupStatusCounts $statusCounts;
-}
-
-class IssueGroupGetResponseDto extends RestResponseDto
-{
-    #[Parameter(in: Parameter::RESPONSE, required: true)]
-    public IssueGroup $issueGroup;
+    use IssuesControllerTrait;
 }
 ```
 
-The repositories already return nothing to non-admins; the admin base restricts the route as well. The
-list screen: an environment switch (`statusCounts->getEnvironments()`, "all" = no filter), status filter tabs (Open /
-Resolved / Ignored, badges from `statusCounts->getCount($environment, $status)`), an environment column when "all" is
-selected, a trend chart above the list (`/trend`, the selected environment) and one in the drawer
-(`/groups/{hash}/trend`) — `IssuesTrendService` caches each for 60 s, columns type · message · events · last seen · release, flags
-"new" and "regression", row → detail with entry points, issues and a link into the log backend
-(`{service="…"} | json | error_group_hash="<hash>"`); the same URL is the `ISSUES_ALERT_LINK_TEMPLATE`.
+| Method and path | Request DTO | Response DTO |
+|---|---|---|
+| `GET /groups/list` | `IssueGroupsListGetRequestDto` (`environment`, `status`, `search`, `section`, `release`, `limit`, `offset`) | `IssueGroupsListGetResponseDto` |
+| `GET /trend` | `IssuesTrendGetRequestDto` (`environment`, `groupHash`, the list filters, `from`, `to`) | `IssuesTrendGetResponseDto` |
+| `GET /groups/{environment}/{groupHash}` | `IssueGroupGetRequestDto` | `IssueGroupDetailGetResponseDto` |
+| `POST /groups/{environment}/{groupHash}/resolve` · `/ignore` · `/reopen` | `IssueGroupGetRequestDto` | `IssueGroupGetResponseDto` |
 
-**The error detail** — what an error actually was (frames with code, causes, request, console command, failed job) —
-is [references/admin-error-detail.md](references/admin-error-detail.md): the runtime-error controller and DTOs
-(Elasticsearch), the registry drawer's events endpoint (`IssueEvent::$rawJson` → `RuntimeErrorOccurrence`, any
-backend), real occurrence JSON, the drawer layout, code-context rendering and "Copy for agent".
+- DTOs in `DDD\Presentation\Api\Admin\Common\Issues\Dtos\`; the payload objects (`IssueGroupSummary`,
+  `IssueSummary`, `IssueEventDetail` with frames, causes, client context, breadcrumbs and worker context,
+  `IssueGroupStatusTotals`, `IssuesRegistryHealthSummary`, `IssueGroupDetail`, `IssuesTrendSelection`) in
+  `DDD\Domain\Common\Entities\Issues\Overview\`; the logic in `IssuesOverviewService` (usable without the trait).
+- `environment=all` reads every known environment (configured ones first, then any other with groups); an omitted
+  environment is the first known one; an unknown one is a 400. Status changes are idempotent.
+- A trend with a list filter sums the trends of at most 50 matching groups (most events first); a log backend that
+  fails or is not configured answers 200 with every point 0 and `trendError`, never a 500. The details run
+  `app:issues:show` in-process: `agentJson` is byte for byte its JSON; client frames are resolved through the source
+  maps; an unreachable backend yields `eventsError`.
+- **Rights:** no role check in the trait. The registry repositories return nothing to non-admins and the
+  application's admin base restricts the route. Error payloads carry stack traces, request parameters and account ids
+  of every tenant: an application whose admin accounts include less trusted ones (partner or support users) restricts
+  the prefix further with `access_control` in `security.yaml`.
+
+Screen guide (payloads, layout, rules, checklist): [references/admin-screen-guide.md](references/admin-screen-guide.md).
+The error detail of the runtime-error dashboard (Elasticsearch, `RuntimeErrorOccurrence`) and the code-context
+rendering: [references/admin-error-detail.md](references/admin-error-detail.md).
 
 ## Runtime errors straight from Elasticsearch — `app:runtime-errors:*`
 

@@ -7,6 +7,7 @@ namespace DDD\Tests\Integration\Issues;
 use DDD\Domain\Common\Entities\Charts\TimeInterval;
 use DDD\Domain\Common\Entities\Issues\Issue;
 use DDD\Domain\Common\Entities\Issues\IssueGroup;
+use DDD\Domain\Common\Entities\Issues\IssueGroupsFilter;
 use DDD\Domain\Common\Entities\Issues\IssuesJobState;
 use DDD\Domain\Common\Services\IssueGroupsService;
 use DDD\Domain\Common\Services\IssuesJobStatesService;
@@ -132,6 +133,41 @@ class IssuesRegistryEnvironmentsTest extends IssuesRegistryTestCase
             foreach (['prod', 'testing', 'mgn'] as $environment) {
                 self::assertNotNull($issuesJobStatesService->getState($environment)->lastSuccessfulRunAt, $environment);
             }
+        });
+    }
+
+    public function testTheGroupListFiltersPagesAndCountsOnTheDatabase(): void
+    {
+        $issuesRegistryJobService = $this->createJobService();
+        $this->fakeIssuesQueryBackends['prod']->addEvent($this->now - 600, 'group-a', occurrences: 3, message: 'Payment_100% declined', workspace: 'prod');
+        $this->fakeIssuesQueryBackends['prod']->addEvent($this->now - 300, 'group-c', occurrences: 1, message: 'Mailer timeout', workspace: 'prod');
+        $this->fakeIssuesQueryBackends['testing']->addEvent($this->now - 600, 'group-a', workspace: 'testing');
+        $this->fakeIssuesQueryBackends['mgn']->addEvent($this->now - 600, 'group-b', workspace: 'mgn');
+        $issuesRegistryJobService->run(DateTime::fromTimestamp($this->now));
+
+        $this->withoutRights(function (): void {
+            $issueGroupsService = $this->getIssueGroupsService();
+            $groupHashesOf = static fn ($issueGroups): array => array_map(
+                static fn (IssueGroup $issueGroup): string => $issueGroup->environment . '/' . $issueGroup->groupHash,
+                $issueGroups->getElements()
+            );
+
+            $prodAndTesting = new IssueGroupsFilter(environments: ['prod', 'testing'], order: IssueGroupsFilter::ORDER_MOST_EVENTS_FIRST);
+            self::assertSame('prod/group-a', $groupHashesOf($issueGroupsService->listGroups($prodAndTesting))[0]);
+            self::assertSame(3, $issueGroupsService->countGroups($prodAndTesting));
+
+            $secondPage = new IssueGroupsFilter(limit: 1, environments: ['prod', 'testing'], offset: 1, order: IssueGroupsFilter::ORDER_MOST_EVENTS_FIRST);
+            self::assertCount(1, $issueGroupsService->listGroups($secondPage));
+            self::assertSame(3, $issueGroupsService->countGroups($secondPage), 'the count ignores paging');
+
+            // LIKE wildcards in the search are literal; the search is case-insensitive
+            self::assertSame(['prod/group-a'], $groupHashesOf($issueGroupsService->listGroups(new IssueGroupsFilter(environments: ['prod'], search: 'PAYMENT_100%'))));
+            self::assertSame([], $groupHashesOf($issueGroupsService->listGroups(new IssueGroupsFilter(environments: ['prod'], search: 'Payment_1000'))));
+            self::assertSame(1, $issueGroupsService->countGroups(new IssueGroupsFilter(environments: ['prod'], search: 'mailer')));
+
+            self::assertSame(0, $issueGroupsService->countGroups(new IssueGroupsFilter(environments: [])));
+            self::assertSame(4, $issueGroupsService->countGroups(new IssueGroupsFilter()));
+            self::assertSame(0, $issueGroupsService->countGroups(new IssueGroupsFilter(lastSeenSince: DateTime::fromTimestamp($this->now + 3600))));
         });
     }
 

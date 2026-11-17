@@ -1,6 +1,6 @@
 ---
 name: ddd-cli-command-specialist
-description: "Create Symfony console commands in the mgamadeus/ddd framework AND use its built-in CLI commands: app:db:read (read-only SQL over stored rows, no raw PDO one-liners), app:entity:show-sql (generated DDL), app:entity:list, app:generate-doctrine-models-for-entities, app:process-cli-message, app:crons:list, app:crons:execute, app:crons:upsert (register or change a cron, --dryRun), app:crons:activate / app:crons:deactivate (switch cron rows by name, --dryRun), app:crons:executions (run history). Covers running bin/console as the PHP-FPM user (never root), command structure, options, admin auth context, service access, SymfonyStyle output, tables, progress bars, batch jobs, limits, signals. Use when writing a console command, inspecting database content or entity DDL from the CLI, regenerating Doctrine models, processing a CLI message, registering, changing, pausing or resuming a cron job, checking why a cron failed, or Could not create proxy directory after a root console run."
+description: "Create Symfony console commands in mgamadeus/ddd AND use its built-in CLI commands: app:db:read (read-only SQL over stored rows, no raw PDO one-liners), app:entity:show-sql (generated DDL), app:entity:list, app:generate-doctrine-models-for-entities, app:process-cli-message, app:crons:list / execute / upsert (--dryRun) / activate / deactivate / executions; the crons admin endpoints (CronsControllerTrait: list, runs, timeline, CRUD, run now, CronSchedulable) and screen guide. Covers running bin/console as the PHP-FPM user (never root), command structure, options, admin auth context, service access, SymfonyStyle output, progress bars, batch jobs, limits, signals. Use when writing a console command, inspecting database content or entity DDL from the CLI, regenerating Doctrine models, processing a CLI message, registering, changing, pausing or resuming a cron job, checking why a cron failed, mounting a crons admin API or building its screen, or Could not create proxy directory after a root console run."
 metadata:
   author: mgamadeus
   version: "1.0.2"
@@ -505,6 +505,17 @@ php bin/console app:db:read "SHOW COLUMNS FROM user_subscriptions" --format=tabl
 | `app:crons:activate "<name>" ["<name>" …] [--dryRun]` · `app:crons:deactivate "<name>" ["<name>" …] [--dryRun]` | `names` (one or several unique Cron names, quoted) | **Switch Crons on or off without re-stating their definition.** Both go through `Cron::activate()` / `Cron::deactivate()`: switching a Cron ON whose stored `nextExecutionScheduledAt` has passed moves it to the schedule's NEXT slot — the tick runs every active Cron whose slot has passed, so a Cron paused for weeks would otherwise fire at the next tick. A slot still ahead is kept. Prints a table per name (active before/after, next execution, result); a name that is not found fails the call (exit 1), an already-matching state counts as unchanged. No `--all` on purpose. Editing schedule/command/description stays `app:crons:upsert`. |
 | `app:crons:executions [--cron=<name\|id>] [--limit=20] [--state=SUCCESSFUL\|FAILED] [--output]` | — | What the scheduler actually DID: recent executions newest first, with start, duration, state and the first output line; `--output` prints each full captured output, which is where a failing command's real error text is. Read-only. Executions are cleaned up after 14 days, so an empty result can also mean "ran longer ago than that". |
 | `app:workers:list` / `check` / `sample` / `stats` / `restart` | — | Worker list, its check against the Messenger configuration, and the worker monitoring — see `ddd-message-handler-specialist`. |
+
+### Crons admin endpoints — `CronsControllerTrait`
+
+An admin API mounts the Crons endpoints with one controller (`#[Route('/common/crons')]` + `use CronsControllerTrait;`):
+list with health status and runner summary, runs (page, detail with output, timeline), schedulable commands, schedule
+preview, create / update / delete, activate / deactivate, run now. Run now makes the Cron due now — the next tick runs
+it through `Cron::execute()` (execution row, result, issues log); the command never runs in the request. Only commands
+marked `#[CronSchedulable]` (`DDD\Symfony\Commands\Common\Crons\CronSchedulable`) can be scheduled over HTTP. The trait
+checks no roles: restrict the path to operators. Routes, DTOs, write rules, errors:
+[references/crons-admin-endpoints.md](references/crons-admin-endpoints.md); screen:
+[references/crons-admin-screen-guide.md](references/crons-admin-screen-guide.md).
 
 **`Could not create proxy directory "…/doctrine/orm/Proxies"` / "must be writable" (HTTP 500, workers crash):** the
 cache was rebuilt by another user than PHP-FPM — usually a `bin/console` run as root. `chown -R <fpm uid>:<fpm gid>

@@ -9,7 +9,7 @@ request, the console command or the failed job. Two data sources, one occurrence
 | The registry (`IssueGroup`, any backend: Loki, ES, Sentry) | `IssueGroup` + its newest events | `IssueGroupsService`, `IssuesQueryBackend::searchEvents()` |
 
 Both drawers render the same `RuntimeErrorOccurrence`. The registry endpoints themselves (list, trend, resolve) are in
-SKILL.md › "Admin UI — controller, DTO, list"; this file adds the error detail.
+SKILL.md › "Admin endpoints — `IssuesControllerTrait`" and [admin-screen-guide.md](admin-screen-guide.md); this file adds the error detail of the runtime-error dashboard.
 
 ## Contents
 

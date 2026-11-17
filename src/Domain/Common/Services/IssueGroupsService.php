@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace DDD\Domain\Common\Services;
 
+use DDD\Domain\Base\Repo\DB\Doctrine\DoctrineQueryBuilder;
 use DDD\Domain\Base\Repo\DB\Doctrine\EntityManagerFactory;
 use DDD\Domain\Base\Services\EntitiesService;
 use DDD\Domain\Common\Entities\Issues\IssueGroup;
@@ -68,7 +69,8 @@ class IssueGroupsService extends EntitiesService
     }
 
     /**
-     * Groups by last seen, newest first.
+     * The groups the filter selects, in its order (last seen first by default), one page of at most `limit` after
+     * `offset`.
      *
      * @throws BadRequestException
      * @throws InternalErrorException
@@ -77,28 +79,83 @@ class IssueGroupsService extends EntitiesService
      */
     public function listGroups(IssueGroupsFilter $issueGroupsFilter): IssueGroups
     {
+        if ($issueGroupsFilter->environments === []) {
+            return new IssueGroups();
+        }
         $dbIssueGroups = new DBIssueGroups();
-        $queryBuilder = $dbIssueGroups::createQueryBuilder();
+        $queryBuilder = $this->createQueryBuilderForFilter($issueGroupsFilter);
         $alias = $dbIssueGroups::getBaseModelAlias();
+        if ($issueGroupsFilter->order === IssueGroupsFilter::ORDER_MOST_EVENTS_FIRST) {
+            $queryBuilder->orderBy("$alias.eventCount", 'DESC')->addOrderBy("$alias.lastSeenAt", 'DESC');
+        } else {
+            $queryBuilder->orderBy("$alias.lastSeenAt", 'DESC');
+        }
+        $queryBuilder->addOrderBy("$alias.id", 'DESC');
+        $queryBuilder->setFirstResult(max(0, $issueGroupsFilter->offset));
+        $queryBuilder->setMaxResults(max(1, $issueGroupsFilter->limit));
+        return $dbIssueGroups->find($queryBuilder, false);
+    }
+
+    /**
+     * The number of groups the filter selects (no paging), under the same read rights as {@see self::listGroups()}.
+     */
+    public function countGroups(IssueGroupsFilter $issueGroupsFilter): int
+    {
+        if ($issueGroupsFilter->environments === []) {
+            return 0;
+        }
+        $queryBuilder = $this->createQueryBuilderForFilter($issueGroupsFilter);
+        DBIssueGroup::applyReadRightsQuery($queryBuilder);
+        $alias = DBIssueGroups::getBaseModelAlias();
+        return (int)$queryBuilder->select("COUNT($alias.id)")->getQuery()->getSingleScalarResult();
+    }
+
+    /**
+     * The filter's criteria as a query on the groups (no order, no paging), with the select and from clause so the
+     * same query serves the list and a COUNT.
+     */
+    protected function createQueryBuilderForFilter(IssueGroupsFilter $issueGroupsFilter): DoctrineQueryBuilder
+    {
+        $queryBuilder = DBIssueGroups::createQueryBuilder(true);
+        $alias = DBIssueGroups::getBaseModelAlias();
         if ($issueGroupsFilter->status !== null) {
             $queryBuilder->andWhere("$alias.status = :status")->setParameter('status', $issueGroupsFilter->status);
         }
         if ($issueGroupsFilter->newSince !== null) {
             $queryBuilder->andWhere("$alias.registeredAt >= :newSince")->setParameter('newSince', $issueGroupsFilter->newSince);
         }
-        if ($issueGroupsFilter->release !== null) {
+        $release = $issueGroupsFilter->release !== null ? trim($issueGroupsFilter->release) : '';
+        if ($release !== '') {
             $queryBuilder->andWhere("($alias.releaseFirstSeen = :release OR $alias.releaseLastSeen = :release)")
-                ->setParameter('release', $issueGroupsFilter->release);
+                ->setParameter('release', $release);
         }
-        if ($issueGroupsFilter->section !== null) {
-            $queryBuilder->andWhere("$alias.section = :section")->setParameter('section', $issueGroupsFilter->section);
+        $section = $issueGroupsFilter->section !== null ? trim($issueGroupsFilter->section) : '';
+        if ($section !== '') {
+            $queryBuilder->andWhere("$alias.section = :section")->setParameter('section', $section);
         }
         if ($issueGroupsFilter->environment !== null) {
             $queryBuilder->andWhere("$alias.environment = :environment")->setParameter('environment', $issueGroupsFilter->environment);
         }
-        $queryBuilder->orderBy("$alias.lastSeenAt", 'DESC');
-        $queryBuilder->setMaxResults(max(1, $issueGroupsFilter->limit));
-        return $dbIssueGroups->find($queryBuilder, false);
+        if ($issueGroupsFilter->environments !== null) {
+            $queryBuilder->andWhere("$alias.environment IN (:environments)")
+                ->setParameter('environments', array_values($issueGroupsFilter->environments));
+        }
+        $search = $issueGroupsFilter->search !== null ? trim($issueGroupsFilter->search) : '';
+        if ($search !== '') {
+            $queryBuilder->andWhere(
+                "(LOWER($alias.sampleMessage) LIKE :search OR LOWER($alias.exceptionType) LIKE :search"
+                . " OR LOWER($alias.logOrigin) LIKE :search)"
+            )->setParameter('search', '%' . addcslashes(mb_strtolower($search), '%_\\') . '%');
+        }
+        if ($issueGroupsFilter->lastSeenSince !== null) {
+            $queryBuilder->andWhere("$alias.lastSeenAt >= :lastSeenSince")
+                ->setParameter('lastSeenSince', $issueGroupsFilter->lastSeenSince);
+        }
+        if ($issueGroupsFilter->firstSeenUntil !== null) {
+            $queryBuilder->andWhere("($alias.firstSeenAt IS NULL OR $alias.firstSeenAt <= :firstSeenUntil)")
+                ->setParameter('firstSeenUntil', $issueGroupsFilter->firstSeenUntil);
+        }
+        return $queryBuilder;
     }
 
     /**
