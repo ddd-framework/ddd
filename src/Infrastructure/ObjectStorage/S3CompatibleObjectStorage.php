@@ -27,8 +27,9 @@ use Throwable;
  * SlowDown / Throttling answers); with a logger each retry is logged at level info ("Try #n after …ms").
  *
  * Per store (see {@see ObjectStorageSettings}): `timeoutSeconds` (the HTTP client's `timeout`, idle time of one attempt),
- * `maxDurationSeconds` (its `max_duration`) and `maxRetries` (the RetryableHttpClient's retry count) apply to every
- * operation. Unset, async-aws builds its own client: default socket timeout (usually 60 s), 3 retries.
+ * `maxDurationSeconds` (its `max_duration`), `maxRetries` (the RetryableHttpClient's retry count) and `httpVersion`
+ * (`1.1` / `2.0`, its `http_version`) apply to every operation; a retry after a transport error uses a new connection.
+ * Unset, async-aws builds its own client: default socket timeout (usually 60 s), 3 retries.
  */
 class S3CompatibleObjectStorage implements ObjectStorage
 {
@@ -162,8 +163,10 @@ class S3CompatibleObjectStorage implements ObjectStorage
 
     /**
      * The HTTP client for the S3 client; null = async-aws builds its default (no own timeout, 3 retries). With a
-     * timeout or retry setting: the base client with `timeout` / `max_duration` as default options, wrapped in the same
-     * retry strategy async-aws uses (1 s / 2 s / 4 s, S3 error codes) with the store's retry count.
+     * timeout, retry or HTTP version setting: the base client with `timeout` / `max_duration` / `http_version` as
+     * default options, wrapped in the same retry strategy async-aws uses (1 s / 2 s / 4 s, S3 error codes) with the
+     * store's retry count. A retry after a transport error (timeout, reset) runs on a new connection
+     * ({@see FreshConnectionRetryStrategy}): over HTTP/2 the client would otherwise reuse the stalled connection.
      */
     protected function createHttpClient(): ?HttpClientInterface
     {
@@ -173,14 +176,19 @@ class S3CompatibleObjectStorage implements ObjectStorage
         $httpClientOptions = array_filter([
             'timeout' => $this->objectStorageSettings->timeoutSeconds,
             'max_duration' => $this->objectStorageSettings->maxDurationSeconds,
+            'http_version' => $this->objectStorageSettings->httpVersion,
         ], static fn(mixed $value): bool => $value !== null);
-        $httpClient = $this->createBaseHttpClient();
-        if ($httpClientOptions !== []) {
-            $httpClient = $httpClient->withOptions($httpClientOptions);
-        }
+        $freshConnectionHttpClient = new FreshConnectionHttpClient(function () use ($httpClientOptions): HttpClientInterface {
+            $httpClient = $this->createBaseHttpClient();
+            return $httpClientOptions !== [] ? $httpClient->withOptions($httpClientOptions) : $httpClient;
+        });
         return new RetryableHttpClient(
-            $httpClient,
-            new AwsRetryStrategy(AwsRetryStrategy::DEFAULT_RETRY_STATUS_CODES, 1000, 2.0, 0, 0.1, new XmlAwsErrorFactory()),
+            $freshConnectionHttpClient,
+            new FreshConnectionRetryStrategy(
+                new AwsRetryStrategy(AwsRetryStrategy::DEFAULT_RETRY_STATUS_CODES, 1000, 2.0, 0, 0.1, new XmlAwsErrorFactory()),
+                $freshConnectionHttpClient,
+                $this->logger
+            ),
             $this->objectStorageSettings->maxRetries ?? self::DEFAULT_MAX_RETRIES,
             $this->logger
         );

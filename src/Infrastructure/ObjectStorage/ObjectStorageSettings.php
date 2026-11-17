@@ -41,6 +41,11 @@ class ObjectStorageSettings extends ValueObject
     public const string SETTING_TIMEOUT_SECONDS = 'TIMEOUT_SECONDS';
     public const string SETTING_MAX_DURATION_SECONDS = 'MAX_DURATION_SECONDS';
     public const string SETTING_MAX_RETRIES = 'MAX_RETRIES';
+    public const string SETTING_HTTP_VERSION = 'HTTP_VERSION';
+
+    public const string HTTP_VERSION_1_1 = '1.1';
+    public const string HTTP_VERSION_2_0 = '2.0';
+    public const array HTTP_VERSIONS = [self::HTTP_VERSION_1_1, self::HTTP_VERSION_2_0];
 
     public const string DEFAULT_REGION = 'us-east-1';
 
@@ -68,6 +73,8 @@ class ObjectStorageSettings extends ValueObject
         public readonly ?float $maxDurationSeconds = null,
         /** @var int|null S3: retries after a failed attempt; 0 = none; null = async-aws's default (3) */
         public readonly ?int $maxRetries = null,
+        /** @var string|null S3: the HTTP version, one of {@see self::HTTP_VERSIONS} (the HTTP client's `http_version`); null = the client's choice (HTTP/2 over https when curl supports it) */
+        public readonly ?string $httpVersion = null,
     ) {
         parent::__construct();
     }
@@ -93,13 +100,26 @@ class ObjectStorageSettings extends ValueObject
             maxDurationSeconds: static::readPositiveFloatSetting($storeName, self::SETTING_MAX_DURATION_SECONDS, 'maxDurationSeconds'),
             maxRetries: ($maxRetries = static::readSetting($storeName, self::SETTING_MAX_RETRIES, 'maxRetries')) !== null
                 && ctype_digit($maxRetries) ? (int)$maxRetries : null,
+            httpVersion: static::readHttpVersionSetting($storeName),
         );
     }
 
-    /** True when the store sets a timeout or a retry count, i.e. the S3 client needs its own HTTP client */
+    /** True when the store sets a timeout, a retry count or an HTTP version, i.e. the S3 client needs its own HTTP client */
     public function hasHttpClientSettings(): bool
     {
-        return $this->timeoutSeconds !== null || $this->maxDurationSeconds !== null || $this->maxRetries !== null;
+        return $this->timeoutSeconds !== null || $this->maxDurationSeconds !== null || $this->maxRetries !== null
+            || $this->httpVersion !== null;
+    }
+
+    /** `1.1` or `2.0` (`2` and `1.1` as numbers accepted), else null (unset or unknown: the client's choice) */
+    protected static function readHttpVersionSetting(string $storeName): ?string
+    {
+        $value = static::readSetting($storeName, self::SETTING_HTTP_VERSION, 'httpVersion');
+        if ($value === null || !is_numeric($value)) {
+            return null;
+        }
+        $httpVersion = number_format((float)$value, 1, '.', '');
+        return in_array($httpVersion, self::HTTP_VERSIONS, true) ? $httpVersion : null;
     }
 
     /** A number of seconds above 0, else null (unset, not numeric, 0 or negative: the default applies) */
