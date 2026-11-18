@@ -26,8 +26,9 @@ are relative to the prefix of the application's controller (e.g. `/api/admin/com
 - Every apply answers the whole recomputed diff: replace the screen's state with it, no follow-up GET.
 - `sqlTableNames: null` applies every pending diff; an empty list is a 400.
 - The text routes are tools for a developer (copy, download); they never execute or write anything.
-- A process that shares another stage's database answers 403 on both applies and on `generateDatabaseTables`: show
-  the message, hide the apply actions.
+- A process that shares another stage's database answers 403 on both applies (the message is the application's
+  `getSchemaWritesDisabledMessage()`): show the message, hide the apply actions. The diff and the text routes stay
+  available there.
 
 ## 2. Payload
 

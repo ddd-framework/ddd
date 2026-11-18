@@ -17,6 +17,7 @@ use DDD\Presentation\Api\Admin\Common\DatabaseModels\Dtos\DBTableDiffsGetRequest
 use DDD\Tests\Presentation\Api\Admin\Common\Fixtures\FixtureForbiddingDatabaseModelsController;
 use DDD\Tests\Presentation\Api\Admin\Common\Fixtures\FixtureDatabaseModelsController;
 use DDD\Tests\Presentation\Api\Admin\Common\Fixtures\FixtureRecordingDatabaseSchemaDiffService;
+use DDD\Tests\Presentation\Api\Admin\Common\Fixtures\FixtureSqlRenderingEntityModelGeneratorService;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\RequestStack;
 
@@ -220,6 +221,45 @@ class DatabaseModelsControllerTraitTest extends AdminControllerTraitTestCase
             } catch (ForbiddenException) {
                 $this->assertNull($this->databaseSchemaDiffService->appliedDiffs);
             }
+        }
+    }
+
+    public function testTheReadOnlyEndpointsStayAvailableWhenSchemaWritesAreDisabled(): void
+    {
+        $this->controller->schemaWritesDisabledOverride = true;
+
+        $responseDto = $this->controller->getDatabaseSchemaDiff(new DBTableDiffsGetRequestDto(), $this->databaseSchemaDiffService);
+        $this->assertSame(3, $responseDto->diffs->count());
+
+        $entityModelGeneratorService = new FixtureSqlRenderingEntityModelGeneratorService();
+        $tablesSqlResponseDto = $this->controller->generateDatabaseTablesSql($entityModelGeneratorService);
+        $this->assertTrue($entityModelGeneratorService->tablesSqlRendered);
+        $this->assertSame(FixtureSqlRenderingEntityModelGeneratorService::RENDERED_SQL, $tablesSqlResponseDto->getContent());
+        $this->assertNull($this->databaseSchemaDiffService->appliedDiffs);
+    }
+
+    public function testTheSchemaWritesRefusalCarriesTheDefaultMessage(): void
+    {
+        $this->controller->schemaWritesDisabledOverride = true;
+        try {
+            $this->controller->applyDatabaseSchemaDiffs(new ApplyDiffsRequestDto(), $this->databaseSchemaDiffService);
+            $this->fail('A schema write must be refused');
+        } catch (ForbiddenException $forbiddenException) {
+            $this->assertStringStartsWith('Schema writes are disabled on this process', $forbiddenException->getMessage());
+        }
+    }
+
+    public function testAnApplicationNamesItsOwnProcedureInTheSchemaWritesRefusal(): void
+    {
+        $this->controller->schemaWritesDisabledOverride = true;
+        $this->controller->schemaWritesDisabledMessageOverride = 'Schema changes ship with the release pipeline.';
+        $applyDiffRequestDto = new ApplyDiffRequestDto();
+        $applyDiffRequestDto->sqlTableName = 'Accounts';
+        try {
+            $this->controller->applyDatabaseSchemaDiff($applyDiffRequestDto, $this->databaseSchemaDiffService);
+            $this->fail('A schema write must be refused');
+        } catch (ForbiddenException $forbiddenException) {
+            $this->assertSame('Schema changes ship with the release pipeline.', $forbiddenException->getMessage());
         }
     }
 

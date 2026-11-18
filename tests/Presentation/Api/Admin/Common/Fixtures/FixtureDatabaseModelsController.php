@@ -15,13 +15,22 @@ class FixtureDatabaseModelsController extends HttpController
 {
     use DatabaseModelsControllerTrait {
         areSchemaWritesDisabled as public areSchemaWritesDisabledByEnvironment;
+        getSchemaWritesDisabledMessage as public getDefaultSchemaWritesDisabledMessage;
     }
 
     /** @var bool|null Overrides the schema-writes switch; null reads the environment */
     public ?bool $schemaWritesDisabledOverride = null;
 
+    /** @var string|null Overrides the message of the schema-writes refusal; null keeps the default */
+    public ?string $schemaWritesDisabledMessageOverride = null;
+
     protected function areSchemaWritesDisabled(): bool
     {
         return $this->schemaWritesDisabledOverride ?? $this->areSchemaWritesDisabledByEnvironment();
+    }
+
+    protected function getSchemaWritesDisabledMessage(): string
+    {
+        return $this->schemaWritesDisabledMessageOverride ?? $this->getDefaultSchemaWritesDisabledMessage();
     }
 }

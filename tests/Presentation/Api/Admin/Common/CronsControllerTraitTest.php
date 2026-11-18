@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace DDD\Tests\Presentation\Api\Admin\Common;
 
 use DDD\Tests\Presentation\Api\Admin\Common\Fixtures\FixtureForbiddingCronsController;
+use DDD\Presentation\Api\Admin\Common\Crons\Dtos\CronUpdateRequestDto;
 use DDD\Tests\Presentation\Api\Admin\Common\Fixtures\FixtureCronsController;
+use Symfony\Component\Validator\Validation;
 
 class CronsControllerTraitTest extends AdminControllerTraitTestCase
 {
@@ -64,6 +66,14 @@ class CronsControllerTraitTest extends AdminControllerTraitTestCase
         foreach (['/common/crons/list', '/common/crons/commands', '/common/crons/timeline', '/common/crons/schedule-preview'] as $literalPath) {
             $this->assertLessThan($cronIdRoutePosition, array_search($literalPath, $paths, true), $literalPath);
         }
+    }
+
+    public function testAnUpdateMaySendBackAStoredNameLongerThanTheNamingRuleAllows(): void
+    {
+        // the naming rule (3 to 80 characters) judges a new name in the service; the request takes what the column holds
+        $validator = Validation::createValidatorBuilder()->enableAttributeMapping()->getValidator();
+        $this->assertCount(0, $validator->validatePropertyValue(CronUpdateRequestDto::class, 'name', str_repeat('Legacy Cron ', 10)));
+        $this->assertCount(1, $validator->validatePropertyValue(CronUpdateRequestDto::class, 'name', str_repeat('x', 256)));
     }
 
     public function testTheOpenApiDocumentDocumentsEveryRoute(): void

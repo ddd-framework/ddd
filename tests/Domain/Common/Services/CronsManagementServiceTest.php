@@ -247,6 +247,56 @@ class CronsManagementServiceTest extends TestCase
         $cronsManagementService->scheduleCronToRunNow($cronWithMissingCommand);
     }
 
+    public function testALegacyNameSentBackUnchangedSavesWithoutRenaming(): void
+    {
+        $cronsManagementService = $this->createCronsManagementService();
+        $cron = $this->createStoredCron();
+        $cron->name = 'Close_Stale Rows (legacy)';
+
+        $cronsManagementService->updateCron(
+            $cron,
+            name: 'Close_Stale Rows (legacy)',
+            description: 'Closes stale fixture rows every ten minutes'
+        );
+
+        $this->assertSame('Close_Stale Rows (legacy)', $cron->name);
+        $this->assertSame(['description'], $cronsManagementService->persistedPropertyNames, 'an unchanged name is no write');
+    }
+
+    public function testALegacyNameWithSurroundingWhitespaceSentBackTrimmedIsNoRename(): void
+    {
+        $cronsManagementService = $this->createCronsManagementService();
+        $cron = $this->createStoredCron();
+        $cron->name = ' Close Stale ';
+
+        $cronsManagementService->updateCron($cron, name: 'Close Stale', description: 'Closes stale fixture rows every ten minutes');
+
+        $this->assertSame(' Close Stale ', $cron->name);
+        $this->assertSame(['description'], $cronsManagementService->persistedPropertyNames);
+    }
+
+    public function testRenamingALegacyNameMustFollowTheNamingRule(): void
+    {
+        $cronsManagementService = $this->createCronsManagementService();
+        $cron = $this->createStoredCron();
+        $cron->name = 'Close Stale';
+        $this->expectException(BadRequestException::class);
+        $this->expectExceptionMessage('name: ');
+        $cronsManagementService->updateCron($cron, name: 'Close Stale Rows');
+    }
+
+    public function testRenamingALegacyNameToAKebabCaseNameIsWritten(): void
+    {
+        $cronsManagementService = $this->createCronsManagementService();
+        $cron = $this->createStoredCron();
+        $cron->name = 'Close Stale';
+
+        $cronsManagementService->updateCron($cron, name: 'close-stale-rows');
+
+        $this->assertSame('close-stale-rows', $cron->name);
+        $this->assertSame(['name'], $cronsManagementService->persistedPropertyNames);
+    }
+
     public function testANameMustBeKebabCase(): void
     {
         $cronsManagementService = $this->createCronsManagementService();

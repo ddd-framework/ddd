@@ -17,9 +17,9 @@ class CronUpdateRequestDto extends RequestDto
     #[Parameter(in: Parameter::PATH, required: true)]
     public int $cronId;
 
-    /** @var string|null New unique name: 3 to 80 lowercase letters, digits and single hyphens */
+    /** @var string|null New unique name: 3 to 80 lowercase letters, digits and single hyphens; the stored name sent back unchanged is accepted even when it predates that rule */
     #[Parameter(in: Parameter::BODY, required: false)]
-    #[Length(max: 80)]
+    #[Length(max: 255)]
     public ?string $name = null;
 
     /** @var string|null New description, 16 to 255 characters */

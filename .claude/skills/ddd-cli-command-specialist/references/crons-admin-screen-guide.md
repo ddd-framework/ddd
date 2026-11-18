@@ -52,7 +52,8 @@ Status badges: `MISSING_COMMAND` and `FAILING` red, `OVERDUE` orange, `RUNNING` 
 - **Arguments**: one line, no quotes; show the composed command line (`commandName arguments`).
 - **Schedule**: text field with the live preview (`isValid`, `error`, the next 5 `nextRuns`); offer presets
   (`*/5 * * * *`, `0 * * * *`, `0 3 * * *`).
-- **Name**: kebab-case hint; on edit, renaming is allowed.
+- **Name**: kebab-case hint; on edit, renaming is allowed. Do not validate an unchanged stored name on the client: a
+  Cron named before the rule saves with its old name (only a new name is held to the rule).
 - **Description**: 16–255 characters, counter.
 - Show field errors from the 400 response's `validationErrors` next to the field they name.
 - Edit sends only the changed fields (PATCH); `arguments: ""` clears them.

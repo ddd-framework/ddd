@@ -40,7 +40,8 @@ use ReflectionException;
  * The guards of {@see DatabaseSchemaDiffService} stay in force: the diff-signature gate, the apply lock and the
  * large-table production guard. The guard's bypass is not reachable over HTTP; a large-table change runs from a
  * console command or a message handler. A process that shares another stage's database refuses every schema write
- * ({@see self::areSchemaWritesDisabled()}).
+ * ({@see self::areSchemaWritesDisabled()}, message {@see self::getSchemaWritesDisabledMessage()}); the read-only
+ * endpoints (diff, SQL and model code) stay available there.
  */
 trait DatabaseModelsControllerTrait
 {
@@ -174,9 +175,8 @@ trait DatabaseModelsControllerTrait
 
     /**
      * The SQL that creates every table of the application's schema (text/plain), without the tables the application
-     * excludes. Returned only, never executed.
+     * excludes. Returned only, never executed, so it is also served when schema writes are disabled.
      *
-     * @throws ForbiddenException When schema writes are disabled on this process
      * @throws Exception
      * @throws ReflectionException
      */
@@ -185,7 +185,6 @@ trait DatabaseModelsControllerTrait
     public function generateDatabaseTablesSql(EntityModelGeneratorService $entityModelGeneratorService): HtmlResponseDto
     {
         $this->throwForbiddenUnlessDatabaseModelsAccessAllowed();
-        $this->throwForbiddenWhenSchemaWritesAreDisabled();
         // null = the whole schema: the tables the application excludes stay out
         $sql = $entityModelGeneratorService->createOrUpdateDatabaseTablesForEntities();
         return new HtmlResponseDto($sql, 200, [], 'text/plain');
@@ -289,11 +288,18 @@ trait DatabaseModelsControllerTrait
     protected function throwForbiddenWhenSchemaWritesAreDisabled(): void
     {
         if ($this->areSchemaWritesDisabled()) {
-            throw new ForbiddenException(
-                'Schema writes are disabled on this process: it shares another stage\'s database. '
-                . 'Apply schema changes through the process that owns the database.'
-            );
+            throw new ForbiddenException($this->getSchemaWritesDisabledMessage());
         }
+    }
+
+    /**
+     * The message of the 403 a schema write gets when schema writes are disabled on this process. An application
+     * overrides it to name its own procedure (which process or pipeline applies schema changes).
+     */
+    protected function getSchemaWritesDisabledMessage(): string
+    {
+        return 'Schema writes are disabled on this process: it shares another stage\'s database. '
+            . 'Apply schema changes through the process that owns the database.';
     }
 
     /**

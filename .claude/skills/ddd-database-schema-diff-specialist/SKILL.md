@@ -703,7 +703,7 @@ class AdminDatabaseModelsController extends AdminController
 | `GET /diff` | `DBTableDiffsGetRequestDto` (no parameters) | `DBTableDiffsGetResponseDto` → `diffs` | — |
 | `POST /applyDiffs` | `ApplyDiffsRequestDto`: `sqlTableNames` (`string[]`, null = all), `disableForeignKeyChecks` (true), `expectedDiffSignatures` | `DBTableDiffsGetResponseDto` (recomputed) | schema |
 | `POST /applyDiff` | `ApplyDiffRequestDto`: `sqlTableName`, `disableForeignKeyChecks` (true), `expectedDiffSignature` | `DBTableDiffsGetResponseDto` (recomputed) | schema |
-| `GET /generateDatabaseTables` | — | text/plain: the SQL of every table (excluded tables left out), never executed | — (refused like a write) |
+| `GET /generateDatabaseTables` | — | text/plain: the SQL of every table (excluded tables left out), never executed | — |
 | `GET /generateDoctrineModels` | — | text/plain: the generated model code of every DB entity; nothing written | — |
 | `GET /generateForEntity` | `DoctrineModelForEntityGetRequestDto`: `entityName` (short or fully qualified; ambiguous = 400, unknown = 404) | text/plain: one entity's model code; nothing written | — |
 
@@ -718,10 +718,14 @@ DTOs: `DDD\Presentation\Api\Admin\Common\DatabaseModels\Dtos\`. What the trait a
 - **Guards kept:** the signature gate and the apply lock run inside the service; the production guard's bypass is
   passed as `false` and no request DTO has a field for it — a large-table copy-forcing change runs from a console
   command or a message handler.
-- **Schema writes disabled:** `applyDiff`, `applyDiffs` and `generateDatabaseTables` answer 403 on a process that shares
-  another stage's database: `APP_SCHEMA_WRITES_DISABLED=1` in the process environment or `.env`. An application with its
-  own signal (e.g. a development workspace pointed at the production database) overrides
-  `areSchemaWritesDisabled(): bool` in its controller.
+- **Schema writes disabled:** `applyDiff` and `applyDiffs` answer 403 on a process that shares another stage's
+  database: `APP_SCHEMA_WRITES_DISABLED=1` in the process environment or `.env`. The read-only routes (`diff`,
+  `generateDatabaseTables`, `generateDoctrineModels`, `generateForEntity`) stay available there — they return text and
+  never execute it (on PostgreSQL the diff builds its target in a scratch schema that is rolled back). An application
+  with its own signal (e.g. a development workspace pointed at the production database) overrides
+  `areSchemaWritesDisabled(): bool` in its controller; the text of the 403 comes from
+  `getSchemaWritesDisabledMessage(): string`, which it overrides to name its own procedure (which process or pipeline
+  applies schema changes).
 - **Model code is a preview:** the routes never write model files; `app:generate-doctrine-models-for-entities` does.
 - **Access:** no role check in the trait. The schema is the most dangerous admin surface: restrict the path to the
   highest admin role (`access_control` in `security.yaml`, or the application's admin base controller).

@@ -95,7 +95,9 @@ extends …`; the framework's id then resolves to it) and overrides `describeCon
 ## 5. Write rules
 
 - **Name**: 3–80 lowercase letters, digits and single hyphens (`send-reminders`), unique — checked on create and on a
-  rename only, so an existing Cron with an older name keeps working.
+  rename only. An update that sends the stored name back (surrounding whitespace aside) is no rename: a Cron named
+  before the rule (`Send Reminders`, longer than 80 characters) saves its other fields without renaming
+  (`CronsManagementService::isCronNameUnchanged()`; the request DTO takes up to 255 characters, the column width).
 - **Arguments**: one line, no quote characters (the runner splits on spaces and runs without a shell), whitespace
   collapsed, no `--loop`, `--env`, `-e`, `--profile`; ≤ 300 characters; command line ≤ 255.
 - **Entity validation decides last** (expression, command registered, description 16–255), like `app:crons:upsert`;

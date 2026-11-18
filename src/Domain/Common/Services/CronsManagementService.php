@@ -328,7 +328,9 @@ class CronsManagementService extends Service
     }
 
     /**
-     * Applies the given fields to a Cron; a null field stays as it is, `$arguments = ''` clears the arguments. A
+     * Applies the given fields to a Cron; a null field stays as it is, `$arguments = ''` clears the arguments. The
+     * naming rule ({@see self::NAME_PATTERN}) judges a new name only: a name stored before the rule, sent back as it is
+     * (surrounding whitespace aside), is no change and saves with the other fields. A
      * changed schedule re-anchors the next slot; switching on goes through {@see Cron::activate()}. Only the changed
      * columns are written, and only the changed properties are held to the entity's constraints (a row that predates a
      * rule still accepts an unrelated change). A schedule change while the Cron runs, or while it is due and a tick is
@@ -351,7 +353,8 @@ class CronsManagementService extends Service
         $storedNextExecutionScheduledAt = $cron->nextExecutionScheduledAt ?? null;
         $storedCommandLine = CronCommandLine::fromCommand((string)$cron->command);
 
-        if ($name !== null && trim($name) !== $cron->name) {
+        // the naming rule holds for a new name; a name stored before the rule is accepted while it stays as it is
+        if ($name !== null && !$this->isCronNameUnchanged($cron, $name)) {
             $this->assertNameIsValidAndFree(trim($name), (int)$cron->id);
             $cron->name = trim($name);
             $changedPropertyNames[] = 'name';
@@ -506,6 +509,15 @@ class CronsManagementService extends Service
     }
 
     // ------------------------------------------------------------------------------------------ validation
+
+    /**
+     * Whether the sent name is the Cron's stored name (surrounding whitespace aside): then it is no rename and the
+     * naming rule does not judge it, so a Cron named before the rule still saves without renaming.
+     */
+    protected function isCronNameUnchanged(Cron $cron, string $sentName): bool
+    {
+        return isset($cron->name) && trim($sentName) === trim($cron->name);
+    }
 
     /**
      * @throws BadRequestException
