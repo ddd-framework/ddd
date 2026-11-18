@@ -166,4 +166,4 @@ file-based leak, and the remote dev workspace with the shell hook needs nothing 
 
 - CLI commands run through the resolved env (`app:db:read`, `app:crons:*`): `ddd-cli-command-specialist`
 - Messenger workers, `--no-debug` stale-container trap, supervisor program blocks: `ddd-message-handler-specialist`
-- Releasing this skill / shipping it to apps (symlink per app): `ddd-composer-update-version`, `ddd-module-orchestrator`
+- Releasing this skill / shipping it to apps (linked by ddd-link-skills on install): `ddd-composer-update-version`, `ddd-module-orchestrator`

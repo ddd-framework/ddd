@@ -37,7 +37,7 @@ If any fails, prefer: CLAUDE.md / AGENTS.md (always-loaded rules), a `knowledge/
 - **kebab-case, ≤64 chars, lowercase/digits/hyphens**; name MUST equal the directory name. No "anthropic"/"claude" in the name.
 - Prefer noun-phrase or gerund (`ddd-entity-specialist`, `processing-pdfs`). Avoid `helper`, `utils`, `tools`, bare `documents`.
 - Ecosystem conventions: Core framework skills `ddd-<topic>-specialist` (or `ddd-<verb-phrase>`), module skills `ddd-module-<name>-specialist`. **App skills take an area prefix, never the product name:** `app-` product code and domains (`app-web-general`, `app-domain-orders`), `ops-` infrastructure (`ops-teamcity-deploy`), `dev-` developer tooling (`dev-git-conflicts`), `biz-` strategy, sales, funding and legal (`biz-competitors`). A brand in a skill name (`acme-…`) turns a product rename into a repo-wide sweep: skill names are referenced from every other skill, agent, workflow and plan (one product rename touched ~2,300 files). Older apps may still carry a brand prefix; do not copy it into new skills.
-- Placement: framework-wide → Core `.claude/skills/` (ships to every app via composer + symlink); module-specific → the module repo; app-specific → the app repo. NOTE: `composer update` refreshes an EXISTING symlink's target but does NOT create symlinks for NEWLY shipped skills — add the symlink by hand (git-tracked) when a new skill first ships.
+- Placement: framework-wide → Core `.claude/skills/` (ships to every app via composer; the app's install hook `ddd-link-skills` links it into `.claude/skills`); module-specific → the module repo; app-specific → the app repo. A newly shipped skill needs no symlink commit in the apps — the generated links pick it up on the next install.
 
 ## Step 2 — The description (the 80% step)
 
@@ -151,5 +151,5 @@ Spec-portable fields (survive packaging/upload): `name`, `description`, `license
 
 ## Cross-Reference
 
-- Shipping a new Core skill to apps (symlink creation, release, propagation): `ddd-module-orchestrator`
+- Shipping a new Core skill to apps (generated vendor skill links, release, propagation): `ddd-module-orchestrator`
 - Releasing the skill change as a package version: `ddd-composer-update-version`

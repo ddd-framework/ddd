@@ -1,0 +1,21 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/*
+ * Links the agent skills of the installed DDD packages into the repository's .claude/skills.
+ * Run from Composer's post-install-cmd / post-update-cmd: "@php vendor/bin/ddd-link-skills".
+ * Plain PHP: boots no kernel and loads no application code.
+ */
+
+use DDD\Tools\SkillLinks\VendorSkillLinker;
+
+if (PHP_VERSION_ID < 80300) {
+    fwrite(STDERR, "[ddd-skills] PHP 8.3 or newer is required; skills not linked\n");
+    exit(0);
+}
+
+require_once dirname(__DIR__) . '/tools/SkillLinks/VendorSkillLinker.php';
+
+exit(VendorSkillLinker::runFromCommandLine(array_slice($argv, 1), (string)getcwd()));

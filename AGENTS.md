@@ -499,6 +499,7 @@ Without the gate, a caller asking for "lite Entity without `setting`" pays an N-
 | ClassFinder | `src/Infrastructure/Libs/ClassFinder.php` |
 | Module system | `src/Infrastructure/Modules/DDDModule.php` |
 | Module compiler pass | `src/Symfony/CompilerPasses/ModuleCompilerPass.php` |
+| Vendor skill links (bin) | `bin/ddd-link-skills`, `tools/SkillLinks/VendorSkillLinker.php` |
 | DDDBundle | `src/DDDBundle.php` |
 | DDDKernel | `src/Symfony/Kernels/DDDKernel.php` |
 | Unit tests | `tests/` (`vendor/bin/phpunit`) |
@@ -718,6 +719,17 @@ $url = $objectStorage?->createTemporaryUrl('reports/42.pdf', 600);   // presigne
 | `Roles` | Role collection with `isAdmin()` and `hasRoles()` checks |
 
 ---
+
+## Vendor Skill Links (`bin/ddd-link-skills`)
+
+Apps get the agent skills of Core, the modules and the npm packages linked into their `.claude/skills` by the Composer
+bin `ddd-link-skills` (`tools/SkillLinks/VendorSkillLinker.php`; plain PHP, no kernel boot, no app autoload) and its
+npm twin `ddd-web link-skills` — same behaviour, same `.ddd-skills.json` manifest, both scan `vendor/mgamadeus/*` and
+`node_modules/@mgamadeus/*`. Apps wire `"@php vendor/bin/ddd-link-skills"` into `post-install-cmd` and
+`post-update-cmd` (beside their existing scripts) and `"postinstall": "ddd-web link-skills"`; `--check` for CI. The
+generated links are git-ignored through a `# ddd-skills:start` … `# ddd-skills:end` block — never commit them. Spec
+shared by both implementations: README › "Agent Skills (vendor skill links)"; a behaviour change lands in both
+implementations and both test suites (`tests/Tools/SkillLinks/`, ddd-web `test/codegen/link-skills.test.ts`).
 
 ## Composer Commands — the platform pin, and why `--ignore-platform-reqs` is now the WRONG default
 
