@@ -1182,6 +1182,7 @@ TRANSLATABLE_ACTIVE_LOCALES=en_US,de_DE,nl_NL,fr_FR
 TRANSLATABLE_DEFAULT_LANGUAGE_CODE=en
 TRANSLATABLE_DEFAULT_WRITING_STYLE=FORMAL
 TRANSLATABLE_FALLBACK_TO_DEFAULT_LANGUAGE_CODE=true
+TRANSLATABLE_FALLBACK_TO_NATIVE_VALUE=true
 ```
 
 **Working with translations:**
@@ -1195,7 +1196,66 @@ Translatable::setTranslationSettingsSnapshot();            // Snapshot
 Translatable::restoreTranslationSettingsSnapshot();        // Restore
 ```
 
-**Fallback:** If translation missing for current language, falls back to `TRANSLATABLE_DEFAULT_LANGUAGE_CODE`.
+**Fallback — a fixed order, never the stored key order.** The key order of the stored JSON is not stable:
+PostgreSQL's jsonb sorts the keys of every document it rewrites (by length, then bytes), e.g. through
+`SqlDialect::jsonUpdate()->mergePatch()`. No reader may depend on it. When the current language has no translation,
+the scalar property gets the first hit of:
+
+| Step | Tried | Switch |
+|---|---|---|
+| 1 | `<current language>:<current country>:<current style>` | always |
+| 2 | same language without country, then the other writing style (`setTranslationsForProperty()` / a load) | always on a load |
+| 3 | `<default language>::<current style>` | `TRANSLATABLE_FALLBACK_TO_DEFAULT_LANGUAGE_CODE` |
+| 4 | any present translation: the default language first, then `TRANSLATABLE_ACTIVE_LANGUAGE_CODES` in their configured order, then every other language; within one rank by key in byte order (`en::FORMAL` < `en::INFORMAL` < `en:us:FORMAL`); empty texts skipped | `TRANSLATABLE_FALLBACK_TO_NATIVE_VALUE` |
+
+Step 4 is `TranslatableService::getFallbackTranslationFromTranslations()` / `sortTranslationIndexesForFallback()`
+(override the service to change the order); `translateKey()` uses it for config translations too.
+
+SQL side: no `ddd_*` function picks a language. The PostgreSQL search column of a `fullTextIndex` property
+(`ddd_translatable_text()`) joins all values in key byte order, so `ft` / `fb` and an orderBy on the property give
+the same result after a jsonb rewrite (rows written before this order keep their text until their next write).
+MariaDB joins in stored order, which its writes keep. An orderBy on a Translatable property therefore sorts by the
+joined texts of all languages (searchable) or the JSON text (plain), not by the current language's text.
+
+**A fallback is never written back.** The scalar of a loaded entity holds the current language's translation or a
+fallback from another language. `TranslationInfos` remembers the text it put there; a write (`update()`,
+`updatePartialIgnoringRights()`, the merge write, an overwrite-then-update of an update endpoint) adds the scalar under
+the current language only when it differs from that text, i.e. was set since the load. Consequence: setting the scalar
+to exactly the text it already shows does not store it for the current language — use
+`setTranslationForProperty('name', $text, 'en')` for that (or `forgetScalarValueResolvedFromStore('name')` on
+`getTranslationInfos()`).
+
+**Which language a plain value belongs to.** A plain text for a Translatable property (`"name": "Bread"` in a request
+body, `$entity->name = 'Bread'` in code) is stored under the CURRENT language, country and writing style at write time
+— the language the application set for the request (account / request language), not the language the client edited.
+A client that edits another language either sends the `Content-Language` header (one tag: `en`, `en-US`; the body's
+plain Translatable texts are stored under `en::<current style>` / `en:us:<current style>`, the current language's
+translation stays untouched, an invalid tag answers 400) or sends the translation map in
+`translationInfos.translationsStore` (`{"name": {"en::FORMAL": "Bread"}}`). Code uses `setTranslationForProperty()`
+with the language. Details: `ddd-endpoint-specialist` → "Translatable values in a request body".
+
+**Translation keys in the store win over the plain value of the same save.** When a save carries translation keys
+for a property in `translationInfos.translationsStore`, the keys say which language each text belongs to.
+`TranslationInfos` tracks per property who set keys since the load (`getStoreKeysSetBySourceForProperty()`:
+`STORE_KEYS_SET_BY_PAYLOAD` — a hydrated request body, message or sent object, carried over by
+`overwritePropertiesFromOtherObject()` —, `STORE_KEYS_SET_BY_CODE` — `setTranslationForProperty()` /
+`setTranslationsForProperty()`; keys a repository loads are not tracked; kept by `clone()` and `serialize()`). A write
+(`update()`, `updatePartialIgnoringRights()`, the merge write) then treats the scalar as follows
+(`TranslationInfos::isScalarValueIgnoredForPersistence()`):
+
+| Keys set by | Default | Between `Translatable::enableStoreOnlyWrites()` and `restoreStoreOnlyWrites()` |
+|---|---|---|
+| nobody (or only loaded) | scalar written under the current language | same |
+| a payload | scalar ignored when it equals one of the property's stored texts; a different text is written under the current language | scalar ignored |
+| code | scalar written under the current language | scalar ignored |
+
+- The default catches the plain value sent next to the map with the same text (`"name": "Bread"` +
+  `{"en::FORMAL": "Bread"}` while the request language is `de` → only `en`) and an echoed fallback; a client that
+  echoes a read entity and edits the plain value still stores its new text.
+- Code keeps writing both (`$row->name = $text; $row->setTranslationForProperty('name', $text, 'en')` stores the text
+  for the current language and for `en`). Put the write between `$before = Translatable::enableStoreOnlyWrites()` and `Translatable::restoreStoreOnlyWrites($before)`
+  (in `finally`; nestable) when only the keys may land (`withStoreOnlyWrites(callable)` is the closure form);
+  `forgetStoreKeysSetForProperty('name')` drops the tracking of one property.
 
 ---
 

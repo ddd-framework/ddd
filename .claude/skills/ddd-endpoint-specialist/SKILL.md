@@ -319,6 +319,38 @@ class ResourceUpdateRequestDto extends RequestDto
 }
 ```
 
+### Translatable values in a request body
+
+A plain text sent for a `#[Translatable]` property (`{"resource": {"name": "Bread"}}`) is stored under the language,
+country and writing style that are CURRENT when the entity is written — what the application set for the request
+(usually the account's language), not the language the client was editing. An admin whose account is German who edits
+the English name with a plain value overwrites the German translation. A client that edits a language other than the
+current one does one of:
+
+| Client sends | Stored as |
+|---|---|
+| plain value, no header | `<current language>:<current country>:<current style>` (unchanged behaviour) |
+| plain value + header `Content-Language: en` | `en::<current style>`; the current language's translation is untouched |
+| plain value + header `Content-Language: en-US` | `en:us:<current style>` |
+| the map: `"translationInfos": {"translationsStore": {"name": {"en::FORMAL": "Bread"}}}` | each key as sent (merged into the stored translations) |
+| the map + a plain value that repeats one of its texts | the map only; the plain value is not added under the current language |
+| the map + a plain value that differs from all of its texts | the map, and the plain value under the current language (an edited echo of a read entity) |
+
+- `Content-Language` holds ONE tag: a two-letter language with an optional two-letter region (`en`, `en-US`,
+  `en_US`). A list (`de-DE, en`) or any other form answers 400. Without the header nothing changes.
+- The header applies to every plain Translatable value of the body (`RequestDto::setPropertiesFromRequest()` →
+  `Translatable::enableInputContentLanguage()` / `restoreInputContentLanguage()` → `TranslatableTrait::applyInputContentLanguageToTranslatableProperties()`).
+  A body that edits several languages at once sends the map.
+- The update pattern (load, `overwritePropertiesFromOtherObject()`, `update()`) keeps the other languages: the column
+  is merged, and the loaded entity's current-language text is not overwritten.
+- A controller whose writes must take a property's text from the map alone whenever the body carries keys for it
+  puts the write in the scope: `$before = Translatable::enableStoreOnlyWrites(); try { $resourcesService->update($resource); }
+  finally { Translatable::restoreStoreOnlyWrites($before); }` (nestable; `withStoreOnlyWrites(callable)` is the closure form) — the plain
+  value of such a property is then ignored even when it differs (`ddd-entity-specialist` → "Translation keys in the
+  store win over the plain value of the same save").
+- A loaded entity's fallback text is never written back under the current language (`ddd-entity-specialist` →
+  "Translatable Storage & Configuration").
+
 ### Response DTOs
 
 > **CRITICAL:** Response DTOs MUST extend `RestResponseDto`. (There is no `ResponseDto` class — `RestResponseDto` is the base.)

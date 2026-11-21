@@ -128,12 +128,14 @@ class PostgresDdlRenderer implements DdlRenderer
 
         // Ports the MariaDB virtualNameSearch REGEXP_REPLACE/JSON_UNQUOTE template (DatabaseModel::fromEntityClass())
         // for the ONE virtual-column shape step 4a supports: concatenate every non-empty value of a JSON object
-        // with " | ", preserving document order via WITH ORDINALITY (the `json` type itself is order-preserving,
-        // D4, but json_each_text()'s iteration order is an implementation detail, not a documented guarantee — the
-        // explicit ordinality column removes that doubt). This is a SEARCH-ONLY column: unlike the main JSON
-        // storage order rule, value order here has no product meaning, only "every language's value is searchable"
-        // does, so exact byte-for-byte parity with MariaDB's output is not a goal. Calls only pg_catalog builtins
-        // (json_each_text, string_agg, coalesce), so the search_path pin is defensive rather than load-bearing here.
+        // with " | ", in the byte order of the translation keys (COLLATE "C"; document order for equal keys). Not
+        // document order: a document rewritten through jsonb (SqlDialect::jsonUpdate()) comes back with its keys
+        // re-sorted, so the text — and an orderBy on it — changed after any such write; the key order keeps it the
+        // same for the same translations. This is a SEARCH-ONLY column: only "every language's value is searchable" has product
+        // meaning, so exact byte-for-byte parity with MariaDB's output (stored order there) is not a goal. Rows
+        // written before this ordering keep their text until their next write; search is unaffected either way.
+        // Calls only pg_catalog builtins (json_each_text, string_agg, coalesce), so the search_path pin is
+        // defensive rather than load-bearing here.
         //
         // Real data (a production copy): a Translatable column can hold a JSON ARRAY instead of an
         // object (e.g. `[]` in a few rows) — `json_each_text()` requires an object and
@@ -150,7 +152,7 @@ class PostgresDdlRenderer implements DdlRenderer
                 AS $ddd$
                     SELECT CASE
                         WHEN json_typeof(input) = 'object' THEN (
-                            SELECT COALESCE(string_agg(t.value, ' | ' ORDER BY t.ord), '')
+                            SELECT COALESCE(string_agg(t.value, ' | ' ORDER BY t.key COLLATE "C", t.ord), '')
                             FROM json_each_text(regexp_replace(input::text, '(?<!\\)\\u0000', '', 'g')::json) WITH ORDINALITY AS t(key, value, ord)
                             WHERE t.value IS NOT NULL AND t.value <> ''
                         )

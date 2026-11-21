@@ -80,8 +80,10 @@ class TranslatableService extends Service
         }
         if ($activeLanguageCodes = Config::getEnv('TRANSLATABLE_ACTIVE_LANGUAGE_CODES')) {
             Translatable::$activeLanguageCodes = explode(',', $activeLanguageCodes);
+            return Translatable::$activeLanguageCodes;
         }
-        return Translatable::$activeLanguageCodes;
+        // not configured: no active language codes (reading the uninitialized static raised an Error)
+        return [];
     }
 
     /**
@@ -95,8 +97,10 @@ class TranslatableService extends Service
         }
         if ($activeLocales = Config::getEnv('TRANSLATABLE_ACTIVE_LOCALES')) {
             Translatable::$activeLocales = explode(',', $activeLocales);
+            return Translatable::$activeLocales;
         }
-        return Translatable::$activeLocales;
+        // not configured: no active locales (reading the uninitialized static raised an Error)
+        return [];
     }
 
     /**
@@ -183,6 +187,57 @@ class TranslatableService extends Service
     }
 
     /**
+     * The translation a reader falls back to when the requested language (and the default language, if that fallback
+     * is enabled) has none: the first non-empty value in the order of {@see sortTranslationIndexesForFallback()}.
+     * Never the first key of the stored map: the key order of a JSON document is not stable (PostgreSQL's jsonb
+     * sorts the keys of every document it rewrites), so a "first available" read changed after a merge.
+     *
+     * @param array $translations Translation index (`<language>:<country>:<writingStyle>`) => text
+     * @return string|null The fallback text, null when no translation is present
+     */
+    public function getFallbackTranslationFromTranslations(array $translations): ?string
+    {
+        $translationIndexes = array_map('strval', array_keys($translations));
+        foreach ($this->sortTranslationIndexesForFallback($translationIndexes) as $translationIndex) {
+            $translation = $translations[$translationIndex] ?? null;
+            if (is_string($translation) && $translation !== '') {
+                return $translation;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The fixed order in which translations are tried as a fallback, independent of the order they are stored in:
+     * the default language first, then the active language codes in their configured order
+     * (TRANSLATABLE_ACTIVE_LANGUAGE_CODES), then every other language; within one rank by the translation index in
+     * byte order (so `en::FORMAL` before `en::INFORMAL` before `en:us:FORMAL`).
+     *
+     * @param string[] $translationIndexes Translation indexes (`<language>:<country>:<writingStyle>`)
+     * @return string[] The same indexes in fallback order
+     */
+    public function sortTranslationIndexesForFallback(array $translationIndexes): array
+    {
+        $languageRanks = [];
+        foreach ([$this->getDefaultLanguageCode(), ...$this->getActiveLanguageCodes()] as $languageCode) {
+            $languageCode = strtolower(trim((string)$languageCode));
+            if ($languageCode !== '' && !isset($languageRanks[$languageCode])) {
+                $languageRanks[$languageCode] = count($languageRanks);
+            }
+        }
+        $unrankedLanguageRank = count($languageRanks);
+        usort(
+            $translationIndexes,
+            static function (string $firstIndex, string $secondIndex) use ($languageRanks, $unrankedLanguageRank): int {
+                $firstRank = $languageRanks[strtolower(explode(':', $firstIndex, 2)[0])] ?? $unrankedLanguageRank;
+                $secondRank = $languageRanks[strtolower(explode(':', $secondIndex, 2)[0])] ?? $unrankedLanguageRank;
+                return ($firstRank <=> $secondRank) ?: strcmp($firstIndex, $secondIndex);
+            }
+        );
+        return $translationIndexes;
+    }
+
+    /**
      * Translates the given translation key.
      * @param string $translationKey
      * @param string|null $languageCode
@@ -243,14 +298,11 @@ class TranslatableService extends Service
                 return Translatable::replacePlaceholders($translation, $placeholders);
             }
         }
-        // If still no translation found, fallback to first available (native) value
+        // If still no translation found, fall back to a present translation, chosen in the fixed fallback order
         if (!$translation && $this->fallbackToNativeValueIfNoTranslationIsPresent()) {
-            $keyTranslations = $translationsFromConfig[$translationKey] ?? [];
-            if (!empty($keyTranslations)) {
-                $translation = reset($keyTranslations);
-                if ($translation) {
-                    return Translatable::replacePlaceholders($translation, $placeholders);
-                }
+            $translation = $this->getFallbackTranslationFromTranslations($translationsFromConfig[$translationKey] ?? []);
+            if ($translation) {
+                return Translatable::replacePlaceholders($translation, $placeholders);
             }
         }
         // if nothing is found, return key itself

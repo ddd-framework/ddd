@@ -11,6 +11,7 @@ use DDD\Domain\Base\Entities\EntitySet;
 use DDD\Domain\Base\Entities\ValueObject;
 use DDD\Domain\Base\Repo\DB\Database\FullTextMode;
 use DDD\Domain\Base\Services\TranslatableService;
+use DDD\Infrastructure\Exceptions\BadRequestException;
 use DDD\Infrastructure\Services\DDDService;
 use DDD\Infrastructure\Validation\Constraints\Choice;
 
@@ -65,6 +66,16 @@ class Translatable extends ValueObject
     /** @var array|null Snapshot of translation settings */
     protected static ?array $translationSettingsSnapshot = null;
 
+    /** @var string|null Language of the plain values of Translatable properties in the input being hydrated */
+    protected static ?string $inputContentLanguageCode = null;
+
+    /** @var string|null Country of the plain values of Translatable properties in the input being hydrated */
+    protected static ?string $inputContentCountryCode = null;
+
+    /** @var bool True inside {@see withStoreOnlyWrites()}: a write ignores the scalar of every Translatable property
+     *  whose translation keys were set in the store for the save */
+    protected static bool $storeOnlyWrites = false;
+
     /**
      * If enabled, the database model generator creates a stored virtual search column `virtual{Field}Search`
      * and a FULLTEXT index on it.
@@ -100,9 +111,162 @@ class Translatable extends ValueObject
     public static function resetToDefaultsForNewJob(): void
     {
         self::$translationSettingsSnapshot = null;
+        self::$inputContentLanguageCode = null;
+        self::$inputContentCountryCode = null;
+        self::$storeOnlyWrites = false;
         static::setCurrentLanguageCode(static::getDefaultLanguageCode());
         static::setCurrentWritingStyle(static::getDefaultWritingStyle());
         static::setCurrentCountryCode(null);
+    }
+
+    /**
+     * Starts a hydration scope in which a plain text sent for a Translatable property is the translation of the given
+     * language, not of the current one: {@see TranslatableTrait::applyInputContentLanguageToTranslatableProperties()}
+     * moves such a value into the translation store under `<language>:<country>:<current writing style>`. A request
+     * DTO uses it for its body hydration when the request carries a `Content-Language` header. Nestable: restore the
+     * returned previous scope with {@see restoreInputContentLanguage()} in `finally`.
+     *
+     * ```php
+     * $previousContentLanguage = Translatable::enableInputContentLanguage('en-US');
+     * try {
+     *     $dto->setPropertiesFromObject($body);
+     * } finally {
+     *     Translatable::restoreInputContentLanguage($previousContentLanguage);
+     * }
+     * ```
+     *
+     * @param string $contentLanguageTag One language tag: `en`, or with a region `en-US` / `en_US`
+     * @return string|null The previous scope as a tag (`en`, `en-us`), null when none was active
+     * @throws BadRequestException When the tag is not one language tag of that form
+     */
+    public static function enableInputContentLanguage(string $contentLanguageTag): ?string
+    {
+        if (!preg_match('/^\s*([a-zA-Z]{2})(?:[-_]([a-zA-Z]{2}))?\s*$/', $contentLanguageTag, $matches)) {
+            throw new BadRequestException(
+                "Content-Language '$contentLanguageTag' is not supported: one language tag is expected, a two-letter "
+                . 'language code with an optional two-letter region (en, en-US)'
+            );
+        }
+        $previousContentLanguageTag = self::getInputContentLanguageTag();
+        self::$inputContentLanguageCode = strtolower($matches[1]);
+        self::$inputContentCountryCode = isset($matches[2]) && $matches[2] !== '' ? strtolower($matches[2]) : null;
+        return $previousContentLanguageTag;
+    }
+
+    /**
+     * Restores the input content language scope {@see enableInputContentLanguage()} returned (null: no scope).
+     *
+     * @param string|null $previousContentLanguageTag The tag returned by {@see enableInputContentLanguage()}
+     * @return void
+     */
+    public static function restoreInputContentLanguage(?string $previousContentLanguageTag): void
+    {
+        if ($previousContentLanguageTag === null) {
+            self::$inputContentLanguageCode = null;
+            self::$inputContentCountryCode = null;
+            return;
+        }
+        self::enableInputContentLanguage($previousContentLanguageTag);
+    }
+
+    /** The active input content language as a tag (`en`, `en-us`), null outside such a scope */
+    public static function getInputContentLanguageTag(): ?string
+    {
+        if (self::$inputContentLanguageCode === null) {
+            return null;
+        }
+        return self::$inputContentLanguageCode . (self::$inputContentCountryCode !== null ? '-' . self::$inputContentCountryCode : '');
+    }
+
+    /**
+     * Convenience form of {@see enableInputContentLanguage()} / {@see restoreInputContentLanguage()}: runs $hydration
+     * in the scope and restores the previous one afterwards, also when it throws.
+     *
+     * @param string $contentLanguageTag One language tag: `en`, or with a region `en-US` / `en_US`
+     * @param callable $hydration The hydration to run in the scope
+     * @return mixed The hydration's return value
+     * @throws BadRequestException When the tag is not one language tag of that form
+     */
+    public static function withInputContentLanguage(string $contentLanguageTag, callable $hydration): mixed
+    {
+        $previousContentLanguageTag = self::enableInputContentLanguage($contentLanguageTag);
+        try {
+            return $hydration();
+        } finally {
+            self::restoreInputContentLanguage($previousContentLanguageTag);
+        }
+    }
+
+    /**
+     * Starts a scope of writes in which a Translatable property whose translation keys were set in the store for the
+     * save (by a payload or by code: {@see TranslationInfos::setTranslationForProperty()},
+     * {@see TranslationInfos::setTranslationsForProperty()}) is written from the store only: its plain scalar value is
+     * ignored, never added under the current language ({@see TranslationInfos::isScalarValueIgnoredForPersistence()}).
+     * Outside the scope only a scalar that repeats one of the texts of a payload's keys is ignored. Nestable: restore
+     * the returned previous state with {@see restoreStoreOnlyWrites()} in `finally`.
+     *
+     * ```php
+     * $storeOnlyWritesBefore = Translatable::enableStoreOnlyWrites();
+     * try {
+     *     $campaign->update();
+     * } finally {
+     *     Translatable::restoreStoreOnlyWrites($storeOnlyWritesBefore);
+     * }
+     * ```
+     *
+     * @return bool The previous state
+     */
+    public static function enableStoreOnlyWrites(): bool
+    {
+        $storeOnlyWritesBefore = self::$storeOnlyWrites;
+        self::$storeOnlyWrites = true;
+        return $storeOnlyWritesBefore;
+    }
+
+    /**
+     * Restores the state {@see enableStoreOnlyWrites()} returned.
+     *
+     * @param bool $storeOnlyWritesBefore The state returned by {@see enableStoreOnlyWrites()}
+     * @return void
+     */
+    public static function restoreStoreOnlyWrites(bool $storeOnlyWritesBefore): void
+    {
+        self::$storeOnlyWrites = $storeOnlyWritesBefore;
+    }
+
+    /**
+     * Convenience form of {@see enableStoreOnlyWrites()} / {@see restoreStoreOnlyWrites()}: runs $write in the scope
+     * and restores the previous state afterwards, also when a write throws.
+     *
+     * @param callable $write The writes to run in the scope (update(), updatePartialIgnoringRights(), …)
+     * @return mixed The return value of $write
+     */
+    public static function withStoreOnlyWrites(callable $write): mixed
+    {
+        $storeOnlyWritesBefore = self::enableStoreOnlyWrites();
+        try {
+            return $write();
+        } finally {
+            self::restoreStoreOnlyWrites($storeOnlyWritesBefore);
+        }
+    }
+
+    /** True inside {@see enableStoreOnlyWrites()} / {@see withStoreOnlyWrites()} */
+    public static function isStoreOnlyWritesActive(): bool
+    {
+        return self::$storeOnlyWrites;
+    }
+
+    /** The language of plain Translatable values in the input being hydrated, null outside such a hydration */
+    public static function getInputContentLanguageCode(): ?string
+    {
+        return self::$inputContentLanguageCode;
+    }
+
+    /** The country of plain Translatable values in the input being hydrated, null when none was named */
+    public static function getInputContentCountryCode(): ?string
+    {
+        return self::$inputContentCountryCode;
     }
 
     public static function setTranslationSettingsSnapshot(): void
@@ -208,6 +372,17 @@ class Translatable extends ValueObject
     public static function isSupportedLanguageCode(string $languageCode): bool
     {
         return static::getTranslatableService()->isSupportedLanguageCode($languageCode);
+    }
+
+    /**
+     * The translation to fall back to when none of the requested language exists, in a fixed order that does not
+     * depend on the stored key order ({@see TranslatableService::getFallbackTranslationFromTranslations()}).
+     *
+     * @param array $translations Translation index => text
+     */
+    public static function getFallbackTranslationFromTranslations(array $translations): ?string
+    {
+        return static::getTranslatableService()->getFallbackTranslationFromTranslations($translations);
     }
 
     public static function getDefaultWritingStyle(): string

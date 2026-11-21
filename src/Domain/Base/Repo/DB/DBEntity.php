@@ -316,6 +316,8 @@ class DBEntity extends DatabaseRepoEntity
             if ($translatableProperty) {
                 /** @var TranslatableTrait $entity */
                 $entity->setTranslationsForProperty($entityPropertyName, $this->ormInstance->$propertyName);
+                // the stored translations are loaded, not set for a save
+                $entity->getTranslationInfos()->forgetStoreKeysSetForProperty($entityPropertyName);
                 return;
             }
 

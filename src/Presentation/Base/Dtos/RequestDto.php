@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace DDD\Presentation\Base\Dtos;
 
 use DDD\Domain\Base\Entities\DefaultObject;
+use DDD\Domain\Base\Entities\Translatable\Translatable;
 use DDD\Infrastructure\Exceptions\BadRequestException;
 use DDD\Infrastructure\Exceptions\InternalErrorException;
 use DDD\Infrastructure\Libs\Datafilter;
@@ -31,6 +32,9 @@ class RequestDto
     /** Compact, LLM-/human-friendly rendering — an endpoint that opts in returns the Markdown produced by an
      *  {@see \DDD\Domain\Base\Entities\LlmMarkdownRenderable} object instead of the full structured payload. */
     public const string OUTPUT_FORMAT_LLM = 'llm';
+
+    /** Request header naming the language of the body's plain Translatable values (`en`, `en-US`) */
+    public const string CONTENT_LANGUAGE_HEADER = 'Content-Language';
 
     /** @var string If set to true, no EntityRegistry Argus Caching will be used */
     #[Parameter(in: Parameter::QUERY, required: false)]
@@ -182,7 +186,19 @@ class RequestDto
             foreach ($bodyDecoded as $propertyName => $value) {
                 $this->propertiesSetFromBody[$propertyName] = true;
             }
-            $this->setPropertiesFromObject($bodyDecoded, sanitizeInput: true);
+            // Content-Language names the language of the body: a plain text sent for a Translatable property is
+            // stored as that language's translation instead of the current (account / request) language's
+            $contentLanguageTag = trim((string)$request->headers->get(self::CONTENT_LANGUAGE_HEADER, ''));
+            if ($contentLanguageTag !== '') {
+                $previousContentLanguageTag = Translatable::enableInputContentLanguage($contentLanguageTag);
+                try {
+                    $this->setPropertiesFromObject($bodyDecoded, sanitizeInput: true);
+                } finally {
+                    Translatable::restoreInputContentLanguage($previousContentLanguageTag);
+                }
+            } else {
+                $this->setPropertiesFromObject($bodyDecoded, sanitizeInput: true);
+            }
         }
         $validationResults = $this->validate(depth: 1);
         if ($validationResults !== true) {

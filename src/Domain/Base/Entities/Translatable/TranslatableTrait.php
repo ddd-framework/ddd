@@ -100,6 +100,54 @@ trait TranslatableTrait
     }
 
     /**
+     * Called by the hydration ({@see \DDD\Infrastructure\Traits\Serializer\SerializerTrait::setPropertiesFromObject()})
+     * inside {@see Translatable::withInputContentLanguage()}: a plain text the payload sent for a Translatable property
+     * is the translation of the input's content language, not of the current one. It is put into the translation
+     * store under `<content language>:<content country or none>:<current writing style>`. When that index is not the
+     * current one, the scalar property is unset, so neither a write of this entity nor an overwrite of a loaded
+     * entity from it ({@see \DDD\Domain\Base\Entities\Traits\DefaultObjectTrait::overwritePropertiesFromOtherObject()})
+     * stores the text under the current language.
+     *
+     * @param object $payload The object the entity was hydrated from
+     * @return void
+     * @throws ReflectionException
+     */
+    public function applyInputContentLanguageToTranslatableProperties(object $payload): void
+    {
+        $contentLanguageCode = Translatable::getInputContentLanguageCode();
+        if ($contentLanguageCode === null) {
+            return;
+        }
+        $contentCountryCode = Translatable::getInputContentCountryCode() ?? '';
+        $contentTranslationIndex = Translatable::getTranslationIndexForLanguageCodeCountryCodeAndWritingStyle(
+            $contentLanguageCode,
+            $contentCountryCode
+        );
+        $currentTranslationIndex = Translatable::getTranslationIndexForLanguageCodeCountryCodeAndWritingStyle();
+        foreach ($this->getTranslatableProperties() as $translatableProperty) {
+            $propertyName = $translatableProperty->getName();
+            if (!isset($payload->$propertyName) || !is_string($payload->$propertyName)) {
+                continue;
+            }
+            if (!isset($this->$propertyName) || !is_string($this->$propertyName)) {
+                continue;
+            }
+            $plainValue = $this->$propertyName;
+            $translationInfos = $this->getTranslationInfos();
+            $translationInfos->setTranslationForProperty(
+                $propertyName,
+                $plainValue,
+                $contentLanguageCode,
+                $contentCountryCode
+            );
+            if ($contentTranslationIndex !== $currentTranslationIndex) {
+                unset($this->$propertyName);
+                $translationInfos->forgetScalarValueResolvedFromStore($propertyName);
+            }
+        }
+    }
+
+    /**
      * Returns all properties with Translatable attribute
      * @return ReflectionProperty[]
      * @throws ReflectionException

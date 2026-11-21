@@ -8,6 +8,7 @@ use DDD\Domain\Base\Entities\DefaultObject;
 use DDD\Domain\Base\Entities\LazyLoad\LazyLoad;
 use DDD\Domain\Base\Entities\ObjectSet;
 use DDD\Domain\Base\Entities\StaticRegistry;
+use DDD\Domain\Base\Entities\Translatable\Translatable;
 use DDD\Infrastructure\Base\DateTime\Date;
 use DDD\Infrastructure\Base\DateTime\DateTime;
 use DDD\Infrastructure\Exceptions\BadRequestException;
@@ -1342,6 +1343,13 @@ trait SerializerTrait
                     $sanitizeInput
                 );
             }
+        }
+        // a request that names the language of its content (Content-Language): plain texts of Translatable properties
+        // are stored as that language's translation, not the current language's
+        if (Translatable::getInputContentLanguageCode() !== null
+            && method_exists($this, 'applyInputContentLanguageToTranslatableProperties')
+        ) {
+            $this->applyInputContentLanguageToTranslatableProperties($object);
         }
         if (DefaultObject::isEntity($this) && isset($this->id) && $this->id) {
             SerializerRegistry::setInstanceForSetPropertiesFromObjectCache($this);

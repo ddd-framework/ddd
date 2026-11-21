@@ -243,7 +243,8 @@ result or a 500). The kind (`FiltersDefinition::$columnKind`) comes from the dec
 - An unquoted numeral arrives as a float from the parser (`7` → `7.0`) and is judged by its string form (`"7"`).
 - On a searchable Translatable an exact `eq` compares the folded text of **all** languages: it matches a row whose
   name exists in one language only. `orderBy` sorts that text in the search column's collation; a plain Translatable
-  keeps sorting its JSON text.
+  keeps sorting its JSON text. Neither sorts by the current language's text. The search text joins the languages in
+  key byte order on PostgreSQL (stable through jsonb rewrites), in stored order on MariaDB.
 - A dotted filter through an expand (`expand=child&filters=child.title fb 'x'`) is validated like a root one (it used
   to lose its operator and end in a 500).
 
