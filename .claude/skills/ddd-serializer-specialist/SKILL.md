@@ -633,6 +633,12 @@ class TagGroup
 ## Performance Notes
 
 - **Cache `toObject` results** -- The framework caches by `spl_object_id` + the four flags (`ignoreHideAttributes`, `ignoreNullValues`, `forPersistence`, `flags`) + the hide-list keys (`SerializerTrait.php:554-558`) — NOT `(uniqueKey, path, hide-config-hash)`. Don't fight it.
+- **Per-class plans** -- what a class declares about its serialization (exposed property, per public property its
+  visible name, `#[HideProperty]`, `#[DontPersistProperty]`, `#[SerializeInToonFormat]`, `#[Aliases]`) and which
+  properties hydration writes are read once per class and process (`StaticRegistry::$serializationPlansByClassName`,
+  `$hydrationPlansByClassName`, `$isEntityByClassName`); per-instance and class-wide hide lists are still asked per
+  object. A scalar or null property value is written as is, without a `serializeProperty()` call. The memory check of
+  the `toObject` cache runs on every 256th store.
 - **TOON for high-cardinality arrays** -- Net wins start around 50+ items per array.
 - **`addPropertiesToHide()` does NOT invalidate any cache** -- it never touches `SerializerRegistry` (`:159-164`); staleness is a non-issue because the hide list is part of the cache key. Still, hide once at the entity boundary (e.g. `mapToEntity()`), not repeatedly in controllers.
 - **Custom `toObject()` for hot paths** -- ValueObjects with 2-3 properties (GeoPoint, MoneyAmount) often override `toObject()` to skip reflection.

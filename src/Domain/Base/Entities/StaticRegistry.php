@@ -47,6 +47,15 @@ class StaticRegistry
     /** @var string[] Allocation of DDD framework class names to App class names, app classes replace framework classes */
     public static $frameworkToAppClassNames = [];
 
+    /** @var array<string, array> <class name> => the properties a serialized object is written into */
+    public static array $hydrationPlansByClassName = [];
+
+    /** @var array<string, array> <class name> => what the class declares about its serialization */
+    public static array $serializationPlansByClassName = [];
+
+    /** @var array<string, bool> <class name> => whether the class is an entity */
+    public static array $isEntityByClassName = [];
+
     /**
      * @var array<string, string> <class name> => the class an object of it is built as when it is read from a stored
      * or serialized value: for a value object the application's class of it, for every other class the class itself.

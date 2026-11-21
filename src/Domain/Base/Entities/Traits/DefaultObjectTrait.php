@@ -38,10 +38,8 @@ trait DefaultObjectTrait
             return false;
         }
         $class = is_object($objectInstanceOrClassName) ? $objectInstanceOrClassName::class : $objectInstanceOrClassName;
-        if (defined("$class::IS_ENTITY")) {
-            return $class::IS_ENTITY;
-        }
-        return false;
+        return StaticRegistry::$isEntityByClassName[$class]
+            ??= (defined("$class::IS_ENTITY") ? (bool)$class::IS_ENTITY : false);
     }
 
     /**

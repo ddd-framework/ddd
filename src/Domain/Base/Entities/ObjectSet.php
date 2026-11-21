@@ -362,7 +362,8 @@ class ObjectSet extends ValueObject implements ArrayAccess, Iterator, Countable,
                 continue;
             }
             // Check if the element already exists in the ObjectSet
-            if ($this->contains($element)) {
+            $uniqueKeyOfElement = $element->uniqueKey();
+            if (isset($this->elementsByUniqueKey[$uniqueKeyOfElement])) {
                 continue;
             }
             if ($element instanceof DefaultObject) {
@@ -377,7 +378,7 @@ class ObjectSet extends ValueObject implements ArrayAccess, Iterator, Countable,
             // Add the element to the ObjectSet's internal list of elements
             $this->elements[] = $element;
             $this->elementCount++;
-            $this->elementsByUniqueKey[$element->uniqueKey()] = $element;
+            $this->elementsByUniqueKey[$uniqueKeyOfElement] = $element;
         }
     }
 

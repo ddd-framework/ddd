@@ -566,13 +566,8 @@ class ReflectionClass extends \ReflectionClass
      */
     public function getAllowedTypesForProperty(\ReflectionProperty|ReflectionProperty &$property): ReflectionAllowedTypes
     {
-        $cacheKey = $this->name . '_' . $property->name;
-        if (isset(self::$reflectionPropertyAllowedTypesCache[$cacheKey])) {
-            return self::$reflectionPropertyAllowedTypesCache[$cacheKey];
-        }
-        $allowedTypes = new ReflectionAllowedTypes($property);
-        self::$reflectionPropertyAllowedTypesCache[$cacheKey] = $allowedTypes;
-        return $allowedTypes;
+        return self::$reflectionPropertyAllowedTypesCache[$this->name][$property->name]
+            ??= new ReflectionAllowedTypes($property);
     }
 
     /**
@@ -630,8 +625,8 @@ class ReflectionClass extends \ReflectionClass
      */
     public function getAttributeInstanceForProperty(string $propertyName, string $attributeName, int $flags = 0): mixed
     {
-        $index = $this->getName() . '_' . $propertyName . '_' . $attributeName;
-        if (isset(self::$attributeInstanceCache[$index])) {
+        $index = $this->name . '_' . $propertyName . '_' . $attributeName;
+        if (isset(self::$attributeInstanceCache[$index]) || array_key_exists($index, self::$attributeInstanceCache)) {
             return self::$attributeInstanceCache[$index];
         } else {
             $reflectionProperty = $this->getProperty($propertyName);

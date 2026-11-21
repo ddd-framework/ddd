@@ -14,10 +14,11 @@ class ChildrenSet extends ObjectSet
     public function add(?BaseObject &...$elements): void
     {
         foreach ($elements as $element) {
-            if (!$this->contains($element)) {
+            $uniqueKeyOfElement = $element->uniqueKey();
+            if (!isset($this->elementsByUniqueKey[$uniqueKeyOfElement])) {
                 $this->elements[] = $element;
                 $this->elementCount++;
-                $this->elementsByUniqueKey[$element->uniqueKey()] = $element;
+                $this->elementsByUniqueKey[$uniqueKeyOfElement] = $element;
             }
         }
     }

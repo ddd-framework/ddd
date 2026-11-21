@@ -556,11 +556,12 @@ trait SerializerTrait
             SerializerRegistry::clearToObjectCache();
         }
         $objectId = spl_object_id($this);
-        $cacheKey = $objectId . '_' . $ignoreHideAttributes . '_' . $ignoreNullValues . '_' . $forPersistence . '_' . $flags . '_(' . implode(
-                '_',
-                array_keys($this->propertiesToHide)
+        $cacheKey = $objectId . '_' . $ignoreHideAttributes . '_' . $ignoreNullValues . '_' . $forPersistence . '_' . $flags . '_(' . (
+            $this->propertiesToHide ? implode('_', array_keys($this->propertiesToHide)) : ''
             ) . ')';
-        $entityId = DefaultObject::isEntity($this) && isset($this->id) ? static::class . '_' . $this->id : null;
+        $entityId = (StaticRegistry::$isEntityByClassName[static::class] ?? DefaultObject::isEntity($this)) && isset($this->id)
+            ? static::class . '_' . $this->id
+            : null;
         if ($cached) {
             if ($cachedResult = SerializerRegistry::getToObjectCacheForObjectId($cacheKey)) {
                 return $cachedResult;
@@ -610,32 +611,18 @@ trait SerializerTrait
 
         $resultArray = [];
 
-        $propertyNameToExposeInsteadOfClass = null;
-        $reflectionClass = new ReflectionClass($this);
-        foreach (
-            $reflectionClass->getAttributes(
-                ExposePropertyInsteadOfClass::class,
-                ReflectionAttribute::IS_INSTANCEOF
-            ) as $classAttribute
-        ) {
-            $attributeInstance = $classAttribute->newInstance();
-            $propertyNameToExposeInsteadOfClass = $attributeInstance->propertyNameToExpose;
-        }
+        // what the class declares about its serialization is read once per class: the exposed property, and per
+        // public property its visible name, its hide / persistence / TOON attributes and its aliases
+        $serializationPlan = StaticRegistry::$serializationPlansByClassName[static::class] ?? static::buildSerializationPlan();
+        $propertyNameToExposeInsteadOfClass = $serializationPlan['propertyNameToExpose'];
 
-        foreach ($this->getProperties(\ReflectionProperty::IS_PUBLIC) as $property) {
-            $propertyName = $property->getName();
+        foreach ($serializationPlan['properties'] as $planOfProperty) {
+            $propertyName = $planOfProperty['name'];
+            $property = $planOfProperty['property'];
             if ($propertyNameToExposeInsteadOfClass && $propertyName != $propertyNameToExposeInsteadOfClass) {
                 continue;
             }
-            $visiblePropertyName = $propertyName;
-            //attribute OverwritePropertyName changes the visible name of an atribute on serialization
-            if ($overwritePropertyNameAttributeInstance = $property->getAttributeInstance(
-                OverwritePropertyName::class,
-                ReflectionAttribute::IS_INSTANCEOF
-            )) {
-                /** @var OverwritePropertyName $overwritePropertyNameAttributeInstance */
-                $visiblePropertyName = $overwritePropertyNameAttributeInstance->name;
-            }
+            $visiblePropertyName = $planOfProperty['visibleName'];
             if (
                 (!$ignoreNullValues && $property->isInitialized($this) && $property->isPublic() && !$property->isStatic(
                     )) || ($ignoreNullValues && isset($this->$propertyName))
@@ -648,19 +635,11 @@ trait SerializerTrait
                 // from a cached/persisted ObjectSet, and the read-back can no longer resolve Email|PhoneNumber etc.
                 // The two hide conditions are therefore grouped under the single !$ignoreHideAttributes guard.
                 if (
-                    !$ignoreHideAttributes && (
-                        $property->getAttributes(
-                            HideProperty::class,
-                            ReflectionAttribute::IS_INSTANCEOF
-                        ) || !$this->isPropertyVisible($propertyName)
-                    )
+                    !$ignoreHideAttributes && ($planOfProperty['isHidden'] || !$this->isPropertyVisible($propertyName))
                 ) {
                     continue;
                 }
-                if ($forPersistence && $property->getAttributes(
-                        DontPersistProperty::class,
-                        ReflectionAttribute::IS_INSTANCEOF
-                    )) {
+                if ($forPersistence && $planOfProperty['isNotPersisted']) {
                     continue;
                 }
                 $propertyValue = $this->$propertyName;
@@ -669,17 +648,22 @@ trait SerializerTrait
                     $propertyType = $property->getType();
                     $keepNullEntriesOfList = $propertyType instanceof ReflectionArrayType && $propertyType->allowsNullElements();
                 }
-                $serializedValue = $this->serializeProperty(
-                    $propertyValue,
-                    $cached,
-                    $returnUniqueKeyInsteadOfContent,
-                    $path,
-                    $ignoreHideAttributes,
-                    $ignoreNullValues,
-                    $forPersistence,
-                    $flags,
-                    $keepNullEntriesOfList
-                );
+                if ($propertyValue === null || is_scalar($propertyValue)) {
+                    // a scalar is its own serialization: no call
+                    $serializedValue = $propertyValue;
+                } else {
+                    $serializedValue = $this->serializeProperty(
+                        $propertyValue,
+                        $cached,
+                        $returnUniqueKeyInsteadOfContent,
+                        $path,
+                        $ignoreHideAttributes,
+                        $ignoreNullValues,
+                        $forPersistence,
+                        $flags,
+                        $keepNullEntriesOfList
+                    );
+                }
 
                 if (
                     is_array($propertyValue)
@@ -687,7 +671,7 @@ trait SerializerTrait
                     && (
                         (
                             static::$toonEnabledSerialization
-                            && $property->hasAttribute(SerializeInToonFormat::class, ReflectionAttribute::IS_INSTANCEOF)
+                            && $planOfProperty['hasToonAttribute']
                         )
                         || $this->isPropertySerializedAsToon($propertyName)
                     )
@@ -707,12 +691,8 @@ trait SerializerTrait
                     $resultArray[$visiblePropertyName] = $serializedValue;
 
                     // Aliases attribute: copy the serialized value to additional alias property names for backward compatibility
-                    if ($aliasesAttributeInstance = $property->getAttributeInstance(
-                        Aliases::class,
-                        ReflectionAttribute::IS_INSTANCEOF
-                    )) {
-                        /** @var Aliases $aliasesAttributeInstance */
-                        foreach ($aliasesAttributeInstance->aliases as $alias) {
+                    if ($planOfProperty['aliases']) {
+                        foreach ($planOfProperty['aliases'] as $alias) {
                             $resultArray[$alias] = $serializedValue;
                         }
                     }
@@ -737,6 +717,60 @@ trait SerializerTrait
         }
 
         return $resultArray;
+    }
+
+    /**
+     * The properties a serialized object is written into, read once per class and process.
+     *
+     * @return array<int, array{name: string, property: ReflectionProperty, allowsNull: bool}>
+     */
+    protected static function buildHydrationPlan(): array
+    {
+        $hydrationPlan = [];
+        foreach (ReflectionClass::instance(static::class)->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
+            if ($property->isReadOnly()) {
+                continue;
+            }
+            $hydrationPlan[] = ['name' => $property->getName(), 'property' => $property, 'allowsNull' => $property->allowsNull()];
+        }
+        return StaticRegistry::$hydrationPlansByClassName[static::class] = $hydrationPlan;
+    }
+
+    /**
+     * What the class declares about its serialization, read once per class and process.
+     *
+     * @return array{propertyNameToExpose: ?string, properties: array<int, array<string, mixed>>}
+     */
+    protected static function buildSerializationPlan(): array
+    {
+        $reflectionClass = ReflectionClass::instance(static::class);
+        $propertyNameToExpose = null;
+        foreach ($reflectionClass->getAttributes(ExposePropertyInsteadOfClass::class, ReflectionAttribute::IS_INSTANCEOF) as $classAttribute) {
+            $propertyNameToExpose = $classAttribute->newInstance()->propertyNameToExpose;
+        }
+        $plansOfProperties = [];
+        foreach ($reflectionClass->getProperties(\ReflectionProperty::IS_PUBLIC) as $property) {
+            if ($property->isStatic()) {
+                continue;
+            }
+            /** @var OverwritePropertyName|null $overwritePropertyName */
+            $overwritePropertyName = $property->getAttributeInstance(OverwritePropertyName::class, ReflectionAttribute::IS_INSTANCEOF);
+            /** @var Aliases|null $aliases */
+            $aliases = $property->getAttributeInstance(Aliases::class, ReflectionAttribute::IS_INSTANCEOF);
+            $plansOfProperties[] = [
+                'name' => $property->getName(),
+                'property' => $property,
+                'visibleName' => $overwritePropertyName ? $overwritePropertyName->name : $property->getName(),
+                'isHidden' => (bool)$property->getAttributes(HideProperty::class, ReflectionAttribute::IS_INSTANCEOF),
+                'isNotPersisted' => (bool)$property->getAttributes(DontPersistProperty::class, ReflectionAttribute::IS_INSTANCEOF),
+                'hasToonAttribute' => $property->hasAttribute(SerializeInToonFormat::class, ReflectionAttribute::IS_INSTANCEOF),
+                'aliases' => $aliases ? $aliases->aliases : null,
+            ];
+        }
+        return StaticRegistry::$serializationPlansByClassName[static::class] = [
+            'propertyNameToExpose' => $propertyNameToExpose,
+            'properties' => $plansOfProperties,
+        ];
     }
 
     /**
@@ -814,9 +848,8 @@ trait SerializerTrait
                     // we had the object by its object hash already in the path, so we are in a recursion
                     return '*RECURSION*';
                 } elseif (
-                    DefaultObject::isEntity(
-                        $propertyValue
-                    ) && isset($propertyValue->id) && isset($path[$propertyValue::class . '_' . $propertyValue->id])
+                    (StaticRegistry::$isEntityByClassName[$propertyValue::class] ?? DefaultObject::isEntity($propertyValue))
+                    && isset($propertyValue->id) && isset($path[$propertyValue::class . '_' . $propertyValue->id])
                 ) {
                     // we had the object (found by entity id) already in the path, so we are in a recursion
                     return '*RECURSION*';
@@ -1306,12 +1339,14 @@ trait SerializerTrait
         bool $sanitizeInput = false
     ): void
     {
-        $reflectionClass = $this->getReflectionClass();
-        foreach ($reflectionClass->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
-            if ($property->isReadOnly()) {
-                continue;
-            }
-            $propertyName = $property->getName();
+        $reflectionClass = ReflectionClass::instance(static::class);
+        // which properties are written and whether each takes null is read once per class
+        $hydrationPlan = StaticRegistry::$hydrationPlansByClassName[static::class] ?? static::buildHydrationPlan();
+        $thisIsObjectSet = $this instanceof ObjectSet;
+        $sourceIsStdClass = $object instanceof stdClass;
+        foreach ($hydrationPlan as $planOfProperty) {
+            $property = $planOfProperty['property'];
+            $propertyName = $planOfProperty['name'];
             if ($propertyName === 'objectType') {
                 // objectType is the class discriminator, set authoritatively by the constructor of the class that
                 // was RESOLVED FROM the payload's objectType before instantiation. Copying the raw payload string
@@ -1321,18 +1356,20 @@ trait SerializerTrait
                 continue;
             }
             // We ignore elements property in ObjectSet as elements are handled by add() function there in their own setPropertiesFromObject function
-            if ($this instanceof ObjectSet && $propertyName == 'elements') {
+            if ($thisIsObjectSet && $propertyName == 'elements') {
                 continue;
             }
             $setProperty = false;
             // we write the property if it is set, means it has a value or it is null
             // in case of null, we take care to check if the target value supports null
-            if (ReflectionClass::isPropertyInitialized($object, $propertyName)) {
-                if ($object->$propertyName === null) {
-                    $setProperty = $property->allowsNull();
-                } else {
-                    $setProperty = true;
-                }
+            if (isset($object->$propertyName)) {
+                $setProperty = true;
+            } elseif (
+                $sourceIsStdClass
+                    ? property_exists($object, $propertyName)
+                    : ReflectionClass::isPropertyInitialized($object, $propertyName)
+            ) {
+                $setProperty = $object->$propertyName === null ? $planOfProperty['allowsNull'] : true;
             }
             if ($setProperty) {
                 $this->setPropertyFromObject(
@@ -1351,7 +1388,7 @@ trait SerializerTrait
         ) {
             $this->applyInputContentLanguageToTranslatableProperties($object);
         }
-        if (DefaultObject::isEntity($this) && isset($this->id) && $this->id) {
+        if ((StaticRegistry::$isEntityByClassName[static::class] ?? DefaultObject::isEntity($this)) && isset($this->id) && $this->id) {
             SerializerRegistry::setInstanceForSetPropertiesFromObjectCache($this);
         }
         if ($rootCall) {
@@ -1390,9 +1427,9 @@ trait SerializerTrait
         bool $sanitizeInput = false
     ): void
     {
-        $propertyName = $property->getName();
+        $propertyName = $property->name;
         if (!$reflectionClass) {
-            $reflectionClass = $this->getReflectionClass();
+            $reflectionClass = ReflectionClass::instance(static::class);
         }
         $allowedTypes = $reflectionClass->getAllowedTypesForProperty($property);
 

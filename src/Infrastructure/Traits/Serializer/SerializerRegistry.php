@@ -31,6 +31,10 @@ class SerializerRegistry
     /** @var array Static cache for toObject call */
     public static $toOjectCache = [];
 
+    protected static int $toObjectCacheStoreCount = 0;
+
+    protected static bool $toObjectCacheStoresArePaused = false;
+
     /** @var array Static cache for setPropertiesFromObjectCall call */
     public static $setPropertiesFromObjectCache = [];
 
@@ -151,8 +155,12 @@ class SerializerRegistry
      */
     public static function setToObjectCacheForObjectId(string|int $objectId, object|array &$object): void
     {
-        // if memory usage is too high, we do not store new objects
-        if (DDDService::instance()->isMemoryUsageHigh()) {
+        // if memory usage is too high, we do not store new objects; the check (ini_get + memory_get_usage) runs on
+        // every 256th store and its answer holds until the next one
+        if ((self::$toObjectCacheStoreCount++ & 255) === 0) {
+            self::$toObjectCacheStoresArePaused = DDDService::instance()->isMemoryUsageHigh();
+        }
+        if (self::$toObjectCacheStoresArePaused) {
             return;
         }
         self::$toOjectCache[$objectId] = $object;
