@@ -1391,7 +1391,7 @@ trait SerializerTrait
     ): void
     {
         $propertyName = $property->getName();
-        if ($reflectionClass) {
+        if (!$reflectionClass) {
             $reflectionClass = $this->getReflectionClass();
         }
         $allowedTypes = $reflectionClass->getAllowedTypesForProperty($property);
@@ -1503,9 +1503,10 @@ trait SerializerTrait
                     if (
                         isset($allowedTypes->allowedTypes[ReflectionClass::BOOL]) && (is_bool(
                                 $arrayItem
-                            ) || $arrayItem === 'true' || $arrayItem == 1.0 || $arrayItem == 1)
+                            ) || $arrayItem === 'true' || $arrayItem === '' || $arrayItem == 1.0 || $arrayItem == 1 || $arrayItem === 'false' || $arrayItem == 0.0 || $arrayItem == 0)
                     ) {
-                        $this->$propertyName[] = filter_var($value, FILTER_VALIDATE_BOOLEAN);
+                        // the ELEMENT is converted, by the rule of a single boolean property
+                        $this->$propertyName[] = filter_var($arrayItem, FILTER_VALIDATE_BOOLEAN);
                         continue;
                     }
                 }
@@ -1530,31 +1531,31 @@ trait SerializerTrait
                 if ($allowedTypes->allowedTypesCount > 1) {
                     // by convention we need an objectType in case of multiple types possible
                     if (
-                        isset($value->objectType) && isset(
-                            ReflectionClass::getObjectTypeMigrations()[$value->objectType]
+                        isset($arrayItem->objectType) && isset(
+                            ReflectionClass::getObjectTypeMigrations()[$arrayItem->objectType]
                         )
                     ) {
-                        $value->objectType = ReflectionClass::getObjectTypeMigrations()[$value->objectType];
+                        $arrayItem->objectType = ReflectionClass::getObjectTypeMigrations()[$arrayItem->objectType];
                     }
-                    if (isset($value->objectType) && isset($allowedTypes->allowedTypes[$value->objectType])) {
-                        $typeToInstance = $value->objectType;
+                    if (isset($arrayItem->objectType) && isset($allowedTypes->allowedTypes[$arrayItem->objectType])) {
+                        $typeToInstance = $arrayItem->objectType;
                     } else {
                         $validType = false;
                         foreach ($allowedTypes->allowedTypes as $allowedType => $true) {
-                            if (isset($value->objectType) && is_a($value->objectType, $allowedType, true)) {
-                                $typeToInstance = $value->objectType;
+                            if (isset($arrayItem->objectType) && is_a($arrayItem->objectType, $allowedType, true)) {
+                                $typeToInstance = $arrayItem->objectType;
                                 $validType = true;
                                 break;
                             }
                         }
                         if (!$validType) {
                             if ($throwErrors) {
-                                if (isset($value->objectType)) {
+                                if (isset($arrayItem->objectType)) {
                                     throw new BadRequestException(
                                         'Property ' . static::class . '->elements needs to be of type ' . implode(
                                             '|',
                                             array_keys($allowedTypes->allowedTypes)
-                                        ) . ', the provided objectType ' . $value->objectType . ' is not supported on index ' . $index
+                                        ) . ', the provided objectType ' . $arrayItem->objectType . ' is not supported on index ' . $index
                                     );
                                 } else {
                                     throw new BadRequestException(
