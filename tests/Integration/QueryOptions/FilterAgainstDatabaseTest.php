@@ -9,6 +9,7 @@ use DDD\Domain\Base\Entities\QueryOptions\FiltersOptions;
 use DDD\Domain\Base\Entities\QueryOptions\OrderByOptions;
 use DDD\Infrastructure\Exceptions\BadRequestException;
 use DDD\Tests\Integration\Fixtures\Entities\CounterRows\CounterRow;
+use DDD\Tests\Integration\Fixtures\Entities\FixtureSettings;
 use DDD\Tests\Integration\Fixtures\Entities\TranslatedRows\TranslatedRow;
 use DDD\Tests\Integration\Fixtures\Repo\DB\CounterRows\DBCounterRow;
 use DDD\Tests\Integration\Fixtures\Repo\DB\CounterRows\DBCounterRowModel;
@@ -295,6 +296,43 @@ class FilterAgainstDatabaseTest extends IntegrationTestCase
         );
         // PostgreSQL rejects NUL in text (22021); MariaDB keeps the byte
         $this->assertSame(static::currentDriver() === 'pdo_pgsql' ? 'nulbyte' : "nul\0byte", $stored);
+    }
+
+    public function testANulCharacterInAJsonValueIsStoredWithoutItOnPostgres(): void
+    {
+        $translatedRow = new TranslatedRow();
+        $translatedRow->title = "nul\0title";
+        $translatedRow->settings = new FixtureSettings();
+        $translatedRow->settings->color = "nul\0color";
+
+        $translatedRow->update();
+
+        $storedRow = static::connection()->fetchAssociative(
+            'SELECT ' . static::dialect()->quote('title') . ' AS title, ' . static::dialect()->quote('settings') . ' AS settings FROM '
+            . static::dialect()->quote('TranslatedRows') . ' WHERE ' . static::dialect()->quote('id') . ' = ?',
+            [$translatedRow->id]
+        );
+        // PostgreSQL rejects the escape \u0000 in json/jsonb (22P05); MariaDB keeps the character
+        $expectedColor = static::currentDriver() === 'pdo_pgsql' ? 'nulcolor' : "nul\0color";
+        $expectedTitle = static::currentDriver() === 'pdo_pgsql' ? 'nultitle' : "nul\0title";
+        $this->assertSame($expectedColor, json_decode((string)$storedRow['settings'], true)['color']);
+        $this->assertContains($expectedTitle, json_decode((string)$storedRow['title'], true));
+    }
+
+    public function testAnEscapedBackslashBeforeU0000InAJsonValueIsKept(): void
+    {
+        $translatedRow = new TranslatedRow();
+        $translatedRow->settings = new FixtureSettings();
+        $translatedRow->settings->color = 'shows \\u0000 as text';
+
+        $translatedRow->update();
+
+        $storedSettings = static::connection()->fetchOne(
+            'SELECT ' . static::dialect()->quote('settings') . ' FROM ' . static::dialect()->quote('TranslatedRows')
+            . ' WHERE ' . static::dialect()->quote('id') . ' = ?',
+            [$translatedRow->id]
+        );
+        $this->assertSame('shows \\u0000 as text', json_decode((string)$storedSettings, true)['color']);
     }
 
     public function testAFulltextTermIsALiteralPrefixWithoutLikeWildcards(): void

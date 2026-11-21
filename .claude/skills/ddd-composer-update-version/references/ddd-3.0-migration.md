@@ -584,3 +584,7 @@ Unchanged:
   DISTINCT, ORDER BY expressions must appear in select list"): the main query also selects the page rank it is ordered
   by, as `dctrn_page_rank`. Still open: on MariaDB, a paginated query that fetch-joins a collection, filters on it and
   orders by a child column returns the page in the order of all the children, not only the matching ones.
+- 3.38.2 — PostgreSQL: a NUL character inside a JSON value (a JSON or value object column, a Translatable; e.g. a
+  model's output) is dropped before the write, like a NUL byte in text since 3.7.3. Before, jsonb refused the escape
+  `\u0000` with SQLSTATE 22P05 and the write failed. Only a valid JSON value loses its `\u0000` escapes; an escaped
+  backslash before `u0000` (the six characters as text) and any non-JSON text stay as they are. MariaDB unchanged.
