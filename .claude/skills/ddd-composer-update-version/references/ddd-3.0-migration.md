@@ -588,3 +588,8 @@ Unchanged:
   model's output) is dropped before the write, like a NUL byte in text since 3.7.3. Before, jsonb refused the escape
   `\u0000` with SQLSTATE 22P05 and the write failed. Only a valid JSON value loses its `\u0000` escapes; an escaped
   backslash before `u0000` (the six characters as text) and any non-JSON text stay as they are. MariaDB unchanged.
+- 3.38.3 — Fixes a regression of 3.38.0 – 3.38.2: `ObjectSet::add()` stored an element under the key it read before
+  `setParent()`. An element whose `uniqueKey()` is built from its parent has one and the same key without a parent,
+  so every further new element collided with the first and was dropped without an error, and `contains()` /
+  `getByUniqueKey()` missed the stored element. The store reads the key again, as up to 3.37.3. Update from 3.38.0 –
+  3.38.2 to 3.38.3.

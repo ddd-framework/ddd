@@ -375,10 +375,11 @@ class ObjectSet extends ValueObject implements ArrayAccess, Iterator, Countable,
                 $this->addChildren($element);
             }
 
-            // Add the element to the ObjectSet's internal list of elements
+            // Add the element to the ObjectSet's internal list of elements. The key is read again: a unique key may
+            // be built from the parent, which was set above, and then differs from the key of the duplicate check.
             $this->elements[] = $element;
             $this->elementCount++;
-            $this->elementsByUniqueKey[$uniqueKeyOfElement] = $element;
+            $this->elementsByUniqueKey[$element->uniqueKey()] = $element;
         }
     }
 
