@@ -574,3 +574,13 @@ Unchanged:
   binary }` in the `multipart/form-data` content of its operation; the upload class (`UploadedFile`) no longer becomes
   a schema component. No change to request handling. SDK generators that typed the files from that component change
   their output (`@mgamadeus/ddd-web` 0.4.0 reads both forms).
+- 3.38.1 — `DoctrineQueryBuilder::hasFetchJoinedCollection()` reads the parsed query's result set mapping instead of
+  the select text, so a collection selected under a result alias (`c AS alias`) counts as fetch-joined as well (a
+  comma-separated select and a partial counted since 3.22.0). Before, a root filter on such a query cut the collection
+  down to the matching children. A fetch-joined to-one relation is still no fetch-joined collection, nor is a
+  collection joined off a join on an entity class (a top-level result of its own, which the WHERE also filters); a
+  query without joins is answered without parsing. PostgreSQL: a `SELECT DISTINCT` query on the two-step path
+  (paginated, or a root filter on a fetch-joined collection) no longer fails with SQLSTATE 42P10 ("for SELECT
+  DISTINCT, ORDER BY expressions must appear in select list"): the main query also selects the page rank it is ordered
+  by, as `dctrn_page_rank`. Still open: on MariaDB, a paginated query that fetch-joins a collection, filters on it and
+  orders by a child column returns the page in the order of all the children, not only the matching ones.
