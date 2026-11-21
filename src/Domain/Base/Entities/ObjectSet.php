@@ -333,7 +333,12 @@ class ObjectSet extends ValueObject implements ArrayAccess, Iterator, Countable,
                             }
                         }
                     } else {
-                        $item = new $typeToInstance();
+                        // a value object is built as the application's class of it
+                        // (DefaultObject::getApplicationClassNameOfValueObject()): one array read per built element,
+                        // the resolution itself runs once per class and process
+                        $classNameToInstantiate = StaticRegistry::$applicationClassNamesOfValueObjects[$typeToInstance]
+                            ?? DefaultObject::getApplicationClassNameOfValueObject($typeToInstance);
+                        $item = new $classNameToInstantiate();
                     }
                 }
                 if (!$entityFromCache && !is_string($value) && method_exists($item, 'setPropertiesFromObject')) {

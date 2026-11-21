@@ -1609,7 +1609,12 @@ trait SerializerTrait
                 } elseif (!$typeToInstance) {
                     $item = null;
                 } else {
-                    $item = new $typeToInstance();
+                    // a value object is built as the application's class of it
+                    // (DefaultObject::getApplicationClassNameOfValueObject()): one array read per built item, the
+                    // resolution itself runs once per class and process
+                    $classNameToInstantiate = StaticRegistry::$applicationClassNamesOfValueObjects[$typeToInstance]
+                        ?? DefaultObject::getApplicationClassNameOfValueObject($typeToInstance);
+                    $item = new $classNameToInstantiate();
                 }
 
                 if ($item) {
@@ -1879,7 +1884,12 @@ trait SerializerTrait
                     $this->$propertyName = $cachedEntityInstance;
                     $entityFromCache = true;
                 } elseif ($typeToInstance) {
-                    $this->$propertyName = new $typeToInstance();
+                    // a value object is built as the application's class of it
+                    // (DefaultObject::getApplicationClassNameOfValueObject()): one array read per built object, the
+                    // resolution itself runs once per class and process
+                    $classNameToInstantiate = StaticRegistry::$applicationClassNamesOfValueObjects[$typeToInstance]
+                        ?? DefaultObject::getApplicationClassNameOfValueObject($typeToInstance);
+                    $this->$propertyName = new $classNameToInstantiate();
                 }
             } catch (Error) {
                 throw new InternalErrorException(

@@ -7,6 +7,7 @@ namespace DDD\Domain\Base\Repo\DB;
 use DDD\Domain\Base\Entities\ChangeHistory\ChangeHistory;
 use DDD\Domain\Base\Entities\ChangeHistory\ChangeHistoryTrait;
 use DDD\Domain\Base\Entities\DefaultObject;
+use DDD\Domain\Base\Entities\StaticRegistry;
 use DDD\Domain\Base\Entities\Entity;
 use DDD\Domain\Base\Entities\EntitySet;
 use DDD\Domain\Base\Entities\LazyLoad\LazyLoad;
@@ -401,8 +402,12 @@ class DBEntity extends DatabaseRepoEntity
                                 $this->ormInstance->$propertyName
                             ) && ($this->ormInstance->$propertyName->objectType ?? null) == $possibleEntityTypeName))
                 ) {
+                    $valueObjectClassName = static::resolveValueObjectClassOfStoredValue(
+                        $possibleEntityTypeName,
+                        $this->ormInstance->$propertyName
+                    );
                     /** @var ValueObject $valueObject */
-                    $valueObject = new $possibleEntityTypeName();
+                    $valueObject = new $valueObjectClassName();
                     // Handling ValueObjects in case of encryption
                     $propertyValue = $this->ormInstance->$propertyName;
                     if ($encryptionScopePassword) {
@@ -485,6 +490,44 @@ class DBEntity extends DatabaseRepoEntity
             ReflectionAttribute::IS_INSTANCEOF
         );
         return DatabaseModel::resolveForeignEntityClassName($declaredClassName, $propertyLazyLoadAttribute?->entityClassName);
+    }
+
+    /**
+     * The class a value object stored in a column is built as. The class the stored value names in `objectType` when
+     * that is a genuine subclass of the declared type (the rule the serializer applies to a nested value object), else
+     * the declared type — and of that class the application's class
+     * ({@see DefaultObject::getApplicationClassNameOfValueObject()}): a module's `?RunSettings $runSettings` on an
+     * entity the application subclasses is read back as the application's run settings, with the fields the
+     * application declared and stored. Before, the declared class was built whatever the row named, and those fields
+     * were dropped on every load.
+     *
+     * The stored `objectType` is read from a decoded value only (array or object, the two forms the migration of
+     * object types above reads as well); a value that is still a string — an encrypted column — is built as the
+     * application's class of the declared type.
+     *
+     * @param string $declaredClassName The declared (value object) type of the property
+     * @param mixed $storedValue The column's value as the ORM instance holds it
+     * @return string The value object class to instantiate
+     */
+    public static function resolveValueObjectClassOfStoredValue(string $declaredClassName, mixed $storedValue): string
+    {
+        $storedObjectType = null;
+        if (is_array($storedValue)) {
+            $storedObjectType = $storedValue['objectType'] ?? null;
+        } elseif (is_object($storedValue)) {
+            $storedObjectType = $storedValue->objectType ?? null;
+        }
+        $classNameToInstantiate = $declaredClassName;
+        if (
+            is_string($storedObjectType)
+            && $storedObjectType !== $declaredClassName
+            && class_exists($storedObjectType)
+            && is_a($storedObjectType, $declaredClassName, true)
+        ) {
+            $classNameToInstantiate = $storedObjectType;
+        }
+        return StaticRegistry::$applicationClassNamesOfValueObjects[$classNameToInstantiate]
+            ?? DefaultObject::getApplicationClassNameOfValueObject($classNameToInstantiate);
     }
 
     /**

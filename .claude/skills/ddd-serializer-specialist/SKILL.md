@@ -136,6 +136,20 @@ A serialized object carries its class as `objectType`. Two config maps keep stor
   name while code that knows only the old name still reads the data. Remove the entry once every reader runs the
   new class.
 
+### A value object is built as the application's class of it
+
+A value object read from a stored or serialized value — a column (`DBEntity::mapToEntity()`), a nested object or
+array element in JSON, an `ObjectSet` element — is built as the application's class of its class (container alias or
+same path under `App\`, what `newInstance()` builds) when that class is a genuine subclass. So a property a module
+declares with its own value object (PHP keeps property types invariant, an application cannot narrow it) holds the
+application's subclass with its fields after a load. A column's stored `objectType` naming a genuine subclass of the
+declared type is honoured first. Entities are unchanged: a JSON object hydrated into an entity-typed property is still
+the declared class, and an entity relation follows `LazyLoad::getApplicationClassNameOfTarget()`.
+
+Resolved once per class and process (`DefaultObject::getApplicationClassNameOfValueObject()`, cached in
+`StaticRegistry::$applicationClassNamesOfValueObjects`); code that builds many objects reads the registry first:
+`StaticRegistry::$applicationClassNamesOfValueObjects[$class] ?? DefaultObject::getApplicationClassNameOfValueObject($class)`.
+
 ### `#[ExposePropertyInsteadOfClass('innerProperty')]` -- Flatten nested object
 ```php
 // The attribute is Attribute::TARGET_CLASS (read OFF THE CLASS) — it goes on the class, NOT on a

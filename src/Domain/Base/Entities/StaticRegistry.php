@@ -48,6 +48,14 @@ class StaticRegistry
     public static $frameworkToAppClassNames = [];
 
     /**
+     * @var array<string, string> <class name> => the class an object of it is built as when it is read from a stored
+     * or serialized value: for a value object the application's class of it, for every other class the class itself.
+     * Filled by {@see DefaultObject::getApplicationClassNameOfValueObject()}; the serializer reads it directly, one
+     * array read per built object.
+     */
+    public static array $applicationClassNamesOfValueObjects = [];
+
+    /**
      * @var array Allocation of Roles required for update of Entities based on RolesRequiredForUpdate attribute
      */
     public static $rolesRequiredForUpdateOnEntities = [];

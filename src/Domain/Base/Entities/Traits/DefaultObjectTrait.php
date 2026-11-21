@@ -6,6 +6,7 @@ use DDD\Domain\Base\Entities\BaseObject;
 use DDD\Domain\Base\Entities\ChildrenSet;
 use DDD\Domain\Base\Entities\DefaultObject;
 use DDD\Domain\Base\Entities\ObjectSet;
+use DDD\Domain\Base\Entities\StaticRegistry;
 use DDD\Infrastructure\Reflection\ReflectionProperty;
 use DDD\Infrastructure\Services\DDDService;
 use DDD\Presentation\Base\OpenApi\Attributes\ClassName;
@@ -68,6 +69,45 @@ trait DefaultObjectTrait
     {
         $className = DDDService::instance()->getContainerServiceClassNameForClass(static::class);
         return new $className();
+    }
+
+    /**
+     * The class a value object of the given class is built as when it is read from a stored or serialized value: the
+     * application's class of it — a container alias or the same path under `App\`
+     * ({@see DDDService::getContainerServiceClassNameForClass()}) — when that class is a genuine subclass, else the
+     * given class. So a property a module declares with its own value object (PHP keeps a property type invariant, an
+     * application's subclass of the owning class cannot narrow it) holds the application's subclass with the
+     * application's fields after a load, exactly as after {@see newInstance()}.
+     *
+     * A class that is no value object (an entity, a plain class) is returned unchanged: an entity relation follows
+     * {@see \DDD\Domain\Base\Entities\LazyLoad\LazyLoad::getApplicationClassNameOfTarget()}.
+     *
+     * Resolved once per class and process into {@see StaticRegistry::$applicationClassNamesOfValueObjects}. Code that
+     * builds many objects reads that registry first and calls this method only for a class it has not seen:
+     * `StaticRegistry::$applicationClassNamesOfValueObjects[$className] ?? DefaultObject::getApplicationClassNameOfValueObject($className)`.
+     *
+     * @param string $className The declared class, or the class a stored `objectType` names
+     * @return string The class to instantiate
+     */
+    public static function getApplicationClassNameOfValueObject(string $className): string
+    {
+        if (isset(StaticRegistry::$applicationClassNamesOfValueObjects[$className])) {
+            return StaticRegistry::$applicationClassNamesOfValueObjects[$className];
+        }
+        $classNameToInstantiate = $className;
+        if (static::isValueObject($className)) {
+            $applicationClassName = DDDService::instance()->getContainerServiceClassNameForClass($className);
+            if (
+                $applicationClassName
+                && $applicationClassName !== $className
+                && class_exists($applicationClassName)
+                && is_a($applicationClassName, $className, true)
+            ) {
+                $classNameToInstantiate = $applicationClassName;
+            }
+        }
+        StaticRegistry::$applicationClassNamesOfValueObjects[$className] = $classNameToInstantiate;
+        return $classNameToInstantiate;
     }
 
     /**
