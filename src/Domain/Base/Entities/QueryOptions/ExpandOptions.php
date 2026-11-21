@@ -95,27 +95,31 @@ class ExpandOptions extends ObjectSet
     /**
      * Validates all defined expand options if a LazyLoad definition exists for it in target class and throws Error if invalid field names are used.
      * returns true if validation finds no issues
+     *
+     * `$refusesHiddenRelations`: a request's expand (true from {@see \DDD\Presentation\Base\QueryOptions\DtoQueryOptionsTrait})
+     * may not name a relation with `#[HideProperty]` at any depth, as it may not filter or sort on one; server code
+     * (`setExpand()`) keeps expanding hidden relations.
+     *
      * @param string $referenceClassName
      * @return bool
      * @throws BadRequestException
      */
-    public function validateAgainstDefinitionsFromReferenceClass(string $referenceClassName): bool
+    public function validateAgainstDefinitionsFromReferenceClass(string $referenceClassName, bool $refusesHiddenRelations = false): bool
     {
         $expandDefinitions = ExpandDefinitions::getExpandDefinitionsForReferenceClass($referenceClassName);
 
         foreach ($this->getElements() as $expandOption) {
-            if (
-                !($expandDefinition = $expandDefinitions->getExpandDefinitionByPropertyName(
-                    $expandOption->propertyName
-                ))
-            ) {
+            $expandDefinition = $expandDefinitions->getExpandDefinitionByPropertyName($expandOption->propertyName);
+            if (!$expandDefinition || ($refusesHiddenRelations && $expandDefinition->isHidden)) {
+                $allowedPropertyNames = [];
+                foreach ($expandDefinitions->getElements() as $allowedExpandDefinition) {
+                    if (!($refusesHiddenRelations && $allowedExpandDefinition->isHidden)) {
+                        $allowedPropertyNames[] = $allowedExpandDefinition->propertyName;
+                    }
+                }
                 throw new BadRequestException(
-                    "Property name used to expand ($expandOption->propertyName) is not allowed. Allowed field names are: [" . implode(
-                        ', ',
-                        array_map(function (ExpandDefinition $expandDefinition) {
-                            return $expandDefinition->propertyName;
-                        }, $expandDefinitions->getElements())
-                    ) . ']'
+                    "Property name used to expand ($expandOption->propertyName) is not allowed. Allowed field names are: ["
+                    . implode(', ', $allowedPropertyNames) . ']'
                 );
             }
             $expandOption->expandDefinition = $expandDefinition;
@@ -167,7 +171,8 @@ class ExpandOptions extends ObjectSet
                                 $targetPropertyClass::getDefaultQueryOptions()
                             );
                             $expandOption->expandOptions->validateAgainstDefinitionsFromReferenceClass(
-                                $targetPropertyClass
+                                $targetPropertyClass,
+                                $refusesHiddenRelations
                             );
                         }
                     } catch (BadRequestException $e) {
@@ -182,7 +187,8 @@ class ExpandOptions extends ObjectSet
                             /** @var QueryOptionsTrait $targetPropertyClass */
                             $targetPropertyClass::setDefaultQueryOptions($targetPropertyClass::getDefaultQueryOptions());
                             $expandOption->expandOptions->validateAgainstDefinitionsFromReferenceClass(
-                                $targetPropertyClass
+                                $targetPropertyClass,
+                                $refusesHiddenRelations
                             );
                         }
                     } elseif ($validationError) {

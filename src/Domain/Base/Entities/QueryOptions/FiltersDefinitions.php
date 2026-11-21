@@ -313,7 +313,8 @@ class FiltersDefinitions extends ObjectSet
                 continue;
             }
             // #[HideProperty] means callers may not see the value, so it must not be reachable through filters or
-            // orderBy either (orderBy and expand definitions derive from these): `password eq 'a*'` (LIKE prefix),
+            // orderBy either (orderBy derives from these; a request's expand refuses a hidden relation through
+            // ExpandDefinition::$isHidden): `password eq 'a*'` (LIKE prefix),
             // lt/gt/bw comparisons or the sort order narrow the result set without the value ever appearing in a
             // response, letting a caller extract a hidden secret step by step.
             if ($reflectionProperty->getAttributeInstance(HideProperty::class)) {

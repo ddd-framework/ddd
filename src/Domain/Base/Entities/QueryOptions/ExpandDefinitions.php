@@ -7,6 +7,7 @@ namespace DDD\Domain\Base\Entities\QueryOptions;
 use DDD\Domain\Base\Entities\DefaultObject;
 use DDD\Domain\Base\Entities\Entity;
 use DDD\Domain\Base\Entities\LazyLoad\LazyLoad;
+use DDD\Infrastructure\Traits\Serializer\Attributes\HideProperty;
 use DDD\Domain\Base\Entities\ObjectSet;
 use DDD\Infrastructure\Exceptions\InternalErrorException;
 use DDD\Infrastructure\Libs\Config;
@@ -128,6 +129,7 @@ class ExpandDefinitions extends ObjectSet
             $expandDefinition = new ExpandDefinition();
             $expandDefinition->propertyName = $propertyName;
             $expandDefinition->referenceClass = $propertyToLazyLoad['class'];
+            $expandDefinition->isHidden = $propertyToLazyLoad['property']->getAttributeInstance(HideProperty::class) !== null;
             if ($propertyType instanceof ReflectionNamedType) {
                 /** @var QueryOptionsTrait $targetPropertyClass */
                 $targetPropertyClass = $propertyType->getName();

@@ -104,7 +104,8 @@ trait DtoQueryOptionsTrait
         }
 
         if (isset($this->expand)) {
-            $this->expand->validateAgainstDefinitionsFromReferenceClass($dtoQueryOptionsAttributeInstance->baseEntity);
+            // a request may not expand a #[HideProperty] relation (it would load data nobody may see)
+            $this->expand->validateAgainstDefinitionsFromReferenceClass($dtoQueryOptionsAttributeInstance->baseEntity, true);
         }
         if (isset($this->filters)) {
             if ($queryOptions && $queryOptions->getFiltersDefinitions()) {

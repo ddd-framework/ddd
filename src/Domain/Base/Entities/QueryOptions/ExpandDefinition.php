@@ -23,6 +23,12 @@ class ExpandDefinition extends ValueObject
     /** @var string The name of the Class with the reference */
     public ?string $referenceClass;
 
+    /**
+     * @var bool The relation carries `#[HideProperty]`: never serialized, so a request may not expand it (400, like a
+     *      filter on it) and the documentation does not list it; server code may still expand it
+     */
+    public bool $isHidden = false;
+
     public function uniqueKey(): string
     {
         return static::uniqueKeyStatic($this->propertyName);

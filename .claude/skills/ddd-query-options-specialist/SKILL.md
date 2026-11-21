@@ -267,6 +267,12 @@ result or a 500). The kind (`FiltersDefinition::$columnKind`) comes from the dec
 
 Expand creates LEFT JOINs in the database query for lazy-loadable properties. **Read rights restrictions (`applyReadRightsQuery`) are automatically applied to expanded entities.**
 
+> **A hidden relation is never expandable by a request (since v3.37.1).** A `#[LazyLoad]` property with
+> `#[HideProperty]` is marked `ExpandDefinition::$isHidden`: a request's `expand` naming it — at any depth — is a 400
+> like a filter on it, the refusal lists only the expandable relations, and the OpenAPI `expand` description leaves
+> it out. Server code keeps expanding it (`setExpand()` and `validateAgainstDefinitionsFromReferenceClass()` without
+> the second argument). Before 3.37.1 any caller could make the server load it (nothing of it was serialized).
+
 ### Basic Expand
 
 ```

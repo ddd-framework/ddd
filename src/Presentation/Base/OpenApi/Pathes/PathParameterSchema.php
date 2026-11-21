@@ -237,7 +237,14 @@ class PathParameterSchema
                             $expandDefinitions = ExpandDefinitions::getExpandDefinitionsForReferenceClass(
                                 $dtoQueryOptionsAttributeInstane->baseEntity
                             );
-                            if (!($expandDefinitions && $expandDefinitions->count())) {
+                            // a #[HideProperty] relation is no expand a request may send: never named in the document
+                            $requestExpandDefinitions = [];
+                            foreach ($expandDefinitions?->getElements() ?? [] as $expandDefinition) {
+                                if (!$expandDefinition->isHidden) {
+                                    $requestExpandDefinitions[] = $expandDefinition;
+                                }
+                            }
+                            if ($requestExpandDefinitions === []) {
                                 $parameter->setToBeSkipped(true);
                                 continue;
                             }
@@ -245,7 +252,7 @@ class PathParameterSchema
                             $parameter->description = ExpandOptions::getParameterSummary();
                             $parameter->description .= "\n\n<details><summary>Allowed expand properties:</summary>  \n\n";
 
-                            foreach ($expandDefinitions->getElements() as $expandDefinition) {
+                            foreach ($requestExpandDefinitions as $expandDefinition) {
                                 $parameter->description .= "\n- `$expandDefinition->propertyName`";
                                 $expandFiltersDefinitions = $expandDefinition->getFiltersDefinitions();
                                 $expandOrderByDefinitions = $expandDefinition->getOrderbyDefinitions() ?? [];
