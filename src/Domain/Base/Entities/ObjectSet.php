@@ -434,7 +434,7 @@ class ObjectSet extends ValueObject implements ArrayAccess, Iterator, Countable,
             if (!$element) {
                 continue;
             }
-            if ($this->contains($elemente)) {
+            if ($this->contains($element)) {
                 return true;
             }
         }
