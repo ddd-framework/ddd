@@ -2,6 +2,15 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.40.1
+
+- `app:untrusted-input:check-runtime` no longer needs GD: the raster check decodes an embedded PNG and writes JPEG
+  through Imagick only (the behaviour test trait's PNG too).
+- Output formats are set by their upper-case coder name: `RasterImageDecoder::setOutputFormat($imagick, 'jpg')` /
+  `normalizeFormatName()`; `PhotoUtils` and `PDFDocument` use it. A case-sensitive allow-list `policy.xml` (only
+  `JPEG`, `PNG`, …) no longer refuses Core's writes. Own code: replace lower-case `setImageFormat('jpeg')` literals,
+  or list both cases in the policy's module and coder patterns.
+
 ## 3.40.0 — untrusted input
 
 No foreign byte or string is executed or interpreted as code any more by Core.

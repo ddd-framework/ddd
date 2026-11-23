@@ -6,6 +6,7 @@ namespace DDD\Testing\UntrustedInput;
 
 use DDD\Domain\Common\Entities\MediaItems\ExcelDocument;
 use DDD\Infrastructure\Services\GuardedHttpFetchService;
+use DDD\Infrastructure\Services\UntrustedInputRuntimeCheckService;
 use DDD\Infrastructure\Untrusted\GuardedHttpFetchResult;
 use DDD\Infrastructure\Untrusted\RasterImageDecoder;
 use DDD\Infrastructure\Untrusted\SafeXml;
@@ -150,13 +151,10 @@ trait UntrustedInputBehaviourTestTrait
     }
 
     /**
-     * @return string a 3×2 PNG made by GD
+     * @return string a 3×2 PNG (no GD needed)
      */
     protected function createTinyPng(): string
     {
-        $gdImage = imagecreatetruecolor(3, 2);
-        ob_start();
-        imagepng($gdImage);
-        return (string)ob_get_clean();
+        return (string)base64_decode(UntrustedInputRuntimeCheckService::RASTER_PROBE_PNG_BASE64, true);
     }
 }

@@ -88,7 +88,7 @@ class PDFDocument extends Document
                 return null;
             }
             $imagick = RasterImageDecoder::readBlob($pngBytes);
-            $imagick->setImageFormat('png');
+            RasterImageDecoder::setOutputFormat($imagick, RasterImageDecoder::FORMAT_PNG);
             $imagick->trimImage(0);
             $imagick->borderImage('white', 10, 10);
             $imagick->scaleImage($width, 0);

@@ -28,6 +28,11 @@ applies the policies in file order and the last match wins: deny everything, the
 </policymap>
 ```
 
+- **Case**: some ImageMagick builds match `module` and `coder` patterns case-sensitively, so a policy listing only
+  `JPEG` refuses `setImageFormat('jpeg')`. Code sets output formats by their upper-case coder name —
+  `RasterImageDecoder::setOutputFormat($imagick, 'jpg')` sets `JPEG` (aliases resolved, non-raster names refused);
+  never a lower-case literal in `setImageFormat()`. A policy that must also serve vendor code writing lower case lists
+  both cases (`{JPEG,jpeg,PNG,png,…}`).
 - Add a coder only for a format the application writes itself (e.g. `PNG32`); every added coder is reachable by
   foreign bytes through any unpinned read.
 - Pseudo-formats (`plasma:`, `xc:`, `label:`, `text:`) are refused by this policy; code that draws with them needs its

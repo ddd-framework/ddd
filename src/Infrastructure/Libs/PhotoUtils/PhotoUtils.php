@@ -118,7 +118,7 @@ class PhotoUtils
 
             // If the format is not JPEG or PNG, convert it to JPEG
             if (!in_array($format, $supportedFormats)) {
-                $imagick->setImageFormat('jpg');
+                RasterImageDecoder::setOutputFormat($imagick, RasterImageDecoder::FORMAT_JPEG);
             }
             // Check if the image has multiple frames
             if ($imagick->getNumberImages() > 1) {
@@ -191,7 +191,7 @@ class PhotoUtils
             }
             // Convert to JPEG and reduce quality if the size is larger than maxSizeInBytes
             if ($maxSizeInBytes !== null && strlen($imagick->getImageBlob()) > $maxSizeInBytes) {
-                $imagick->setImageFormat('jpg');
+                RasterImageDecoder::setOutputFormat($imagick, RasterImageDecoder::FORMAT_JPEG);
                 $imagick->setImageCompressionQuality(90);
             }
             if (in_array(strtolower($imagick->getImageFormat()), ['jpg', 'jpeg'])) {
@@ -258,7 +258,7 @@ class PhotoUtils
                     break;
                 }
                 $segment = $imagick->getImageRegion($width, $segmentHeight, 0, $offsetY);
-                $segment->setImageFormat($format);
+                RasterImageDecoder::setOutputFormat($segment, $format);
                 $segment->setImagePage(0, 0, 0, 0); // reset the virtual canvas so the region IS the whole image
                 $slices[] = $segment->getImageBlob();
                 $segment->clear();

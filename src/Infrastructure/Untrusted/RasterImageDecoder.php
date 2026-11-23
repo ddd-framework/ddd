@@ -42,6 +42,9 @@ class RasterImageDecoder
         self::FORMAT_HEIC => 'image/heic',
     ];
 
+    /** @var string[] Other names of an allowed format => the coder's own (upper-case) name */
+    public const array FORMAT_NAME_ALIASES = ['JPG' => self::FORMAT_JPEG, 'JPE' => self::FORMAT_JPEG, 'HEIF' => self::FORMAT_HEIC];
+
     /** @var string[] ISO-BMFF brands of HEIF still images and sequences (decoded by the HEIC coder) */
     public const array HEIF_BRANDS = ['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'hevm', 'hevs', 'mif1', 'msf1'];
 
@@ -189,6 +192,41 @@ class RasterImageDecoder
         // cloned image written after setImageFormat('jpeg') came out in the source format)
         $imagick->setFormat('');
         return $imagick;
+    }
+
+    /**
+     * The coder name of an allowed raster format: upper case, aliases resolved (`jpg` → `JPEG`). An allow-list
+     * `policy.xml` matches module names case-sensitively on some ImageMagick builds, so a lower-case `jpeg` is refused
+     * where `JPEG` is allowed.
+     * @param string $format
+     * @return string one of ALLOWED_FORMATS
+     * @throws UnsupportedImageFormatException the name is no allowed raster format
+     */
+    public static function normalizeFormatName(string $format): string
+    {
+        $formatName = strtoupper(trim($format));
+        $formatName = static::FORMAT_NAME_ALIASES[$formatName] ?? $formatName;
+        if (!in_array($formatName, static::ALLOWED_FORMATS, true)) {
+            throw new UnsupportedImageFormatException(
+                'Output format not allowed: ' . $format . '; allowed: ' . implode(', ', static::ALLOWED_FORMATS)
+            );
+        }
+        return $formatName;
+    }
+
+    /**
+     * Sets the encoder of an image to an allowed raster format, by its upper-case coder name.
+     * @param Imagick $imagick
+     * @param string $format `jpeg`, `jpg`, `PNG`, `webp`, …
+     * @return string the coder name set
+     * @throws UnsupportedImageFormatException the name is no allowed raster format
+     * @throws ImagickException
+     */
+    public static function setOutputFormat(Imagick $imagick, string $format): string
+    {
+        $formatName = static::normalizeFormatName($format);
+        $imagick->setImageFormat($formatName);
+        return $formatName;
     }
 
     /**

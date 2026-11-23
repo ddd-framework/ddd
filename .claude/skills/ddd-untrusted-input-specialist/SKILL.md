@@ -37,7 +37,7 @@ dimensions).
 
 | Need | Use | Never |
 |---|---|---|
-| decode an image | `RasterImageDecoder::readBlob($bytes)` / `readFirstFrameOfFile($path)`; `probe($bytes)` → `RasterImageInfo` (width, height, mimeType from the bytes); `detectFormat()` / `isAllowed()` | `new Imagick()` + `readImageBlob()` (the magic bytes pick the coder: PostScript runs Ghostscript) |
+| decode an image | `RasterImageDecoder::readBlob($bytes)` / `readFirstFrameOfFile($path)`; `probe($bytes)` → `RasterImageInfo` (width, height, mimeType from the bytes); `detectFormat()` / `isAllowed()`; encode with `setOutputFormat($imagick, 'jpg')` (upper-case coder name) | `new Imagick()` + `readImageBlob()` (the magic bytes pick the coder: PostScript runs Ghostscript) |
 | fetch a URL from outside | `GuardedHttpFetchService::fetch($url, $maxBytes, $timeout, $maxRedirects, $allowedContentTypes)` (container service) → `GuardedHttpFetchResult` (`isSuccessful()`, `body`, `refusalReason`) | Guzzle / `file_get_contents($url)` / `get_headers()` on a user URL |
 | parse XML / HTML | `SafeXml::loadXml()` / `loadSimpleXml()` / `loadHtml()` / `createReader()` | `DOMDocument::loadXML()` with `LIBXML_NOENT` / `DTDLOAD` / `PARSEHUGE`, `simplexml_load_string()` |
 | a path from a request | `ContainedPath::resolveExistingFile($root, $relative, ['svg'])` / `resolveNewFile()` | `file_get_contents($root . $requestDto->path)` |
@@ -97,6 +97,8 @@ Ghostscript from images that do not need it (LibreOffice and ClamAV do not).
 
 ## Traps
 
+- **Lower-case output formats** (`setImageFormat('jpeg')`) are refused by a case-sensitive allow-list policy: use
+  `RasterImageDecoder::setOutputFormat()` (upper-case coder name).
 - **Setting the format AFTER the read** does nothing: `setFormat()` must precede `readImageBlob()` — use the decoder.
 - **A client's `fileFormat`, `width`, `fileSize`** are never trusted: measure (`RasterImageDecoder::probe()`).
 - **Exact-match deny-lists of types** (`text/html` vs `text/html; charset=utf-8`): normalise

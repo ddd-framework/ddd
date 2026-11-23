@@ -35,6 +35,9 @@ class UntrustedInputRuntimeCheckService extends Service
     /** @var string Messages of a coder that was refused, not run: a policy denial or a coder that is not installed */
     public const string REFUSAL_MESSAGE_PATTERN = '/not authorized|not allowed by the security policy|security policy|no decode delegate|NoDecodeDelegate|unable to load module|UnableToOpenModule/i';
 
+    /** @var string A 3×2 PNG (base64): the raster check needs neither GD nor an encoder to make its input */
+    public const string RASTER_PROBE_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAMAAAACCAIAAAASFvFNAAAAC0lEQVR4nGNgwAQAABQAAX3+Hu4AAAAASUVORK5CYII=';
+
     /** @var string[] Executables that must not be on the PATH of a process that handles foreign bytes */
     public const array FORBIDDEN_EXECUTABLES = ['gs', 'gsc', 'gsx'];
 
@@ -100,12 +103,9 @@ class UntrustedInputRuntimeCheckService extends Service
     protected function checkRasterCoderWorks(): UntrustedInputRuntimeCheck
     {
         try {
-            $gdImage = imagecreatetruecolor(2, 2);
-            ob_start();
-            imagepng($gdImage);
-            $pngBytes = (string)ob_get_clean();
+            $pngBytes = (string)base64_decode(static::RASTER_PROBE_PNG_BASE64, true);
             $imagick = RasterImageDecoder::readBlob($pngBytes);
-            $imagick->setImageFormat('jpeg');
+            RasterImageDecoder::setOutputFormat($imagick, RasterImageDecoder::FORMAT_JPEG);
             $jpegBytes = $imagick->getImageBlob();
             $imagick->clear();
             return $this->createCheck(
