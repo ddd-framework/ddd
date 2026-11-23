@@ -129,8 +129,18 @@ class DDDService
             $appClassName = self::APP_ROOT_NAMESPACE . substr($className, strlen(self::FRAMEWORK_ROOT_NAMESPACE));
             try {
                 if (class_exists($appClassName)) {
-                    StaticRegistry::$frameworkToAppClassNames[$className] = $appClassName;
-                    return $appClassName;
+                    // only a genuine subclass overrides: an unrelated application class that happens to sit at the same
+                    // path (a class a newer framework or module release added under a name the application already
+                    // used) must never replace the framework class — it would fail later with a TypeError far away
+                    $frameworkClassExists = class_exists($className) || interface_exists($className);
+                    if (!$frameworkClassExists || is_a($appClassName, $className, true)) {
+                        StaticRegistry::$frameworkToAppClassNames[$className] = $appClassName;
+                        return $appClassName;
+                    }
+                    error_log(
+                        "[DDD] {$appClassName} sits at the same path as {$className} but does not extend it, so it does "
+                        . "not override it: rename the application class or make it extend {$className}"
+                    );
                 }
             }
             catch (Exception){

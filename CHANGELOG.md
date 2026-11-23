@@ -2,6 +2,13 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.40.2
+
+- Same-path overrides: an application class at the same path under `App\` replaces a framework or module class only
+  when it extends it (or the framework class does not exist). An unrelated application class that happens to carry the
+  name of a class a newer release added no longer silently takes its place (it used to fail far away with a
+  TypeError); it is ignored and a line names it in the error log: rename it or make it extend the framework class.
+
 ## 3.40.1
 
 - `app:untrusted-input:check-runtime` no longer needs GD: the raster check decodes an embedded PNG and writes JPEG

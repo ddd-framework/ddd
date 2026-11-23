@@ -9,7 +9,7 @@ use DDD\Tests\Infrastructure\Services\Fixtures\ClassNameResolvingDDDService;
 use ErrorException;
 use PHPUnit\Framework\TestCase;
 
-require_once __DIR__ . '/Fixtures/MirroredAppClass.php';
+require_once __DIR__ . '/Fixtures/MirroredAppClassOfTheApplication.php';
 
 /**
  * A framework class name whose application mirror exists at the same path resolves to the application class — also
