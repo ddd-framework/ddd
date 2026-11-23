@@ -215,7 +215,8 @@ class FilesystemObjectStorage implements ObjectStorage
         int $expiresInSeconds = 3600,
         ?string $contentType = null,
         bool $createOnly = true,
-        ?string $checksumSha256 = null
+        ?string $checksumSha256 = null,
+        ?string $contentMd5 = null
     ): ObjectStoragePresignedRequest {
         $filePath = $this->getFilePath($key);
         $this->ensureDirectoryOfFile($filePath);
@@ -237,7 +238,8 @@ class FilesystemObjectStorage implements ObjectStorage
         string $key,
         string $uploadId,
         int $partNumber,
-        int $expiresInSeconds = 3600
+        int $expiresInSeconds = 3600,
+        ?string $contentMd5 = null
     ): ObjectStoragePresignedRequest {
         return $this->createFilePresignedRequest($this->getMultipartUploadDirectory($uploadId) . '/' . max(1, $partNumber), $expiresInSeconds);
     }

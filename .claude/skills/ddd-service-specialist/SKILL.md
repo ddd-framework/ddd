@@ -838,13 +838,16 @@ $downloadUrl = $exportsObjectStorage->createTemporaryUrl("reports/{$report->id}.
   `putObjectFromFile()` / `saveObjectToFile()` (streamed, no content in memory), `getObjectContentRange($key, $offset,
   $length)`, `headObject($key): ?ObjectStorageObject` (size, `contentType`, `etag`, `checksumSha256`),
   `copyObject($source, $target, $createOnly)` (inside the store, multipart above 5 GiB), `deleteObjects(string[])`.
-  `createTemporaryUploadRequest($key, …, $contentType, $createOnly = true, $checksumSha256)` answers an
+  `createTemporaryUploadRequest($key, …, $contentType, $createOnly = true, $checksumSha256, $contentMd5)` answers an
   `ObjectStoragePresignedRequest` (`method`, `url`, `headers` the client sends unchanged, `expiresAt`): create-only
   signs `If-None-Match: *` into the URL (own SigV4 signer, `S3PresignedRequestSigner`; async-aws's presign drops
   conditional headers), so a URL never replaces an object. Multipart: `createMultipartUpload()`,
   `createTemporaryUploadPartRequest($key, $uploadId, $partNumber)`, `listUploadedParts()`,
   `completeMultipartUpload($key, $uploadId, ?$parts, $createOnly = true)` (without parts: the ones the store holds),
-  `abortMultipartUpload()`. A store that ignores `If-None-Match` sets `conditionalWrites: false`
+  `abortMultipartUpload()`. Hetzner verifies `Content-MD5` (also on parts) but ignores `x-amz-checksum-sha256` and
+  `If-None-Match` on a multipart completion: send the MD5, compute the SHA-256 yourself, give every upload its own key
+  (the driver also checks for an existing object before a create-only completion). A store that ignores
+  `If-None-Match` on PUT sets `conditionalWrites: false`
   (`OBJECT_STORAGE_<NAME>_CONDITIONAL_WRITES`); `supportsConditionalWrites()` tells a caller to upload to a staging
   key and copy on the server instead. The filesystem driver answers `file://` requests (development only).
 - **Retries:** the s3 adapter does not retry itself — async-aws does: 3 retries with 1 s / 2 s / 4 s backoff on

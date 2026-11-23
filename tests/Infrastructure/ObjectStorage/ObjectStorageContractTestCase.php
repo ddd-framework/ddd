@@ -126,7 +126,7 @@ abstract class ObjectStorageContractTestCase extends TestCase
         $objectStorage = $this->createObjectStorage();
         $uploadId = $objectStorage->createMultipartUpload('multipart/big.bin', 'application/octet-stream');
         $firstPart = str_repeat('a', 5 * 1024 * 1024);
-        $this->assertTrue($this->sendPresignedRequest($objectStorage->createTemporaryUploadPartRequest('multipart/big.bin', $uploadId, 1, 60), $firstPart));
+        $this->assertTrue($this->sendPresignedRequest($objectStorage->createTemporaryUploadPartRequest('multipart/big.bin', $uploadId, 1, 60, base64_encode(md5($firstPart, true))), $firstPart));
         $this->assertTrue($this->sendPresignedRequest($objectStorage->createTemporaryUploadPartRequest('multipart/big.bin', $uploadId, 2, 60), 'tail'));
         $uploadedParts = $objectStorage->listUploadedParts('multipart/big.bin', $uploadId);
         $this->assertCount(2, $uploadedParts->getElements());
@@ -136,6 +136,30 @@ abstract class ObjectStorageContractTestCase extends TestCase
 
         $this->assertSame(5 * 1024 * 1024 + 4, $objectStorage->headObject('multipart/big.bin')?->size);
         $this->assertSame('atail', $objectStorage->getObjectContentRange('multipart/big.bin', 5 * 1024 * 1024 - 1, 5));
+    }
+
+    public function testAMultipartCompletionNeverReplacesAnExistingObject(): void
+    {
+        $objectStorage = $this->createObjectStorage();
+        $objectStorage->putObject('multipart/existing.bin', 'existing');
+        $uploadId = $objectStorage->createMultipartUpload('multipart/existing.bin');
+        $this->assertTrue($this->sendPresignedRequest($objectStorage->createTemporaryUploadPartRequest('multipart/existing.bin', $uploadId, 1, 60), 'new'));
+        $this->assertFalse($objectStorage->completeMultipartUpload('multipart/existing.bin', $uploadId));
+        $this->assertSame('existing', $objectStorage->getObjectContent('multipart/existing.bin'));
+        $objectStorage->abortMultipartUpload('multipart/existing.bin', $uploadId);
+    }
+
+    public function testAPresignedUploadWithAnMd5SignsTheHeader(): void
+    {
+        $objectStorage = $this->createObjectStorage();
+        $contentMd5 = base64_encode(md5('checked', true));
+        $uploadRequest = $objectStorage->createTemporaryUploadRequest('uploads/md5.txt', 60, contentMd5: $contentMd5);
+        if (!str_starts_with($uploadRequest->url, 'file://')) {
+            $this->assertSame($contentMd5, $uploadRequest->headers['Content-MD5'] ?? null);
+            $this->assertStringContainsString('content-md5', $uploadRequest->url);
+        }
+        $this->assertTrue($this->sendPresignedRequest($uploadRequest, 'checked'));
+        $this->assertSame('checked', $objectStorage->getObjectContent('uploads/md5.txt'));
     }
 
     public function testAnAbortedMultipartUploadLeavesNoObject(): void

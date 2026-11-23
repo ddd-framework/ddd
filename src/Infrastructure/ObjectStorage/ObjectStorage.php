@@ -116,7 +116,9 @@ interface ObjectStorage
     /**
      * A request that uploads the object without credentials: a presigned PUT. With $createOnly (the default) the
      * header `If-None-Match: *` is signed into it, so the URL can never replace an existing object. A given
-     * SHA-256 (base64) is signed as `x-amz-checksum-sha256`: the store refuses other bytes.
+     * SHA-256 (base64) is signed as `x-amz-checksum-sha256`, a given MD5 (base64) as `Content-MD5`: the store refuses
+     * other bytes. Not every store checks both (Hetzner verifies `Content-MD5` and ignores the SHA-256): a caller that
+     * must be sure of the bytes sends the MD5 and computes the SHA-256 itself after the upload.
      *
      * @throws InternalErrorException
      */
@@ -125,7 +127,8 @@ interface ObjectStorage
         int $expiresInSeconds = 3600,
         ?string $contentType = null,
         bool $createOnly = true,
-        ?string $checksumSha256 = null
+        ?string $checksumSha256 = null,
+        ?string $contentMd5 = null
     ): ObjectStoragePresignedRequest;
 
     /**
@@ -136,7 +139,8 @@ interface ObjectStorage
     public function createMultipartUpload(string $key, ?string $contentType = null): string;
 
     /**
-     * A presigned PUT for one part (1 to 10,000; every part but the last at least 5 MiB).
+     * A presigned PUT for one part (1 to 10,000; every part but the last at least 5 MiB); a given MD5 (base64) is
+     * signed as `Content-MD5`.
      *
      * @throws InternalErrorException
      */
@@ -144,7 +148,8 @@ interface ObjectStorage
         string $key,
         string $uploadId,
         int $partNumber,
-        int $expiresInSeconds = 3600
+        int $expiresInSeconds = 3600,
+        ?string $contentMd5 = null
     ): ObjectStoragePresignedRequest;
 
     /**
@@ -156,7 +161,9 @@ interface ObjectStorage
 
     /**
      * Completes the upload from the given parts, or from the parts the store holds when none are given. With
-     * $createOnly the completion is refused when an object exists under the key: false (the upload stays open).
+     * $createOnly the completion is refused when an object exists under the key: false (the upload stays open). The
+     * driver checks for an object first: not every store honours `If-None-Match` on the completion (Hetzner replaces
+     * the object), so a caller that needs a write-once key also gives every upload a key of its own.
      *
      * @throws InternalErrorException
      */

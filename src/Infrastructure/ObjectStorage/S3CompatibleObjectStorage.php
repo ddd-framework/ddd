@@ -416,9 +416,13 @@ class S3CompatibleObjectStorage implements ObjectStorage
         int $expiresInSeconds = 3600,
         ?string $contentType = null,
         bool $createOnly = true,
-        ?string $checksumSha256 = null
+        ?string $checksumSha256 = null,
+        ?string $contentMd5 = null
     ): ObjectStoragePresignedRequest {
         $headers = [];
+        if ($contentMd5 !== null) {
+            $headers['Content-MD5'] = $contentMd5;
+        }
         if ($createOnly && $this->supportsConditionalWrites()) {
             $headers['If-None-Match'] = '*';
         }
@@ -464,14 +468,16 @@ class S3CompatibleObjectStorage implements ObjectStorage
         string $key,
         string $uploadId,
         int $partNumber,
-        int $expiresInSeconds = 3600
+        int $expiresInSeconds = 3600,
+        ?string $contentMd5 = null
     ): ObjectStoragePresignedRequest {
         try {
             return $this->createPresignedRequestSigner()->createPresignedRequest(
                 ObjectStoragePresignedRequest::METHOD_PUT,
                 $this->getStorageKey($key),
                 $expiresInSeconds,
-                ['partNumber' => (string)$partNumber, 'uploadId' => $uploadId]
+                ['partNumber' => (string)$partNumber, 'uploadId' => $uploadId],
+                $contentMd5 !== null ? ['Content-MD5' => $contentMd5] : []
             );
         } catch (Throwable $throwable) {
             throw $throwable instanceof InternalErrorException ? $throwable : $this->createStorageException('presign part', $key, $throwable);
@@ -511,6 +517,10 @@ class S3CompatibleObjectStorage implements ObjectStorage
         ?ObjectStorageUploadedParts $uploadedParts = null,
         bool $createOnly = true
     ): bool {
+        // not every store honours If-None-Match on the completion (Hetzner replaces the object): look first
+        if ($createOnly && $this->objectExists($key)) {
+            return false;
+        }
         $uploadedParts ??= $this->listUploadedParts($key, $uploadId);
         $completedParts = [];
         foreach ($uploadedParts->getElements() as $uploadedPart) {
