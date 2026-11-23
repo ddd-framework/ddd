@@ -117,7 +117,8 @@ class {Resource}Controller extends {Audience}Controller
 
 // Request caching (GET endpoints)
 use DDD\Presentation\Base\Router\RouteAttributes\RequestCache;
-#[RequestCache(ttl: 300, considerCurrentAuthAccountForCacheKey: true)]
+#[RequestCache(ttl: 300)]   // key varies by the signed-in account by default (a hit skips the controller's own access check);
+                           // considerCurrentAuthAccountForCacheKey: false only when every account gets the same answer
 // Bypass cache with ?noCache=true query parameter
 ```
 

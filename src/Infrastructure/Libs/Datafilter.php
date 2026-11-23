@@ -190,6 +190,28 @@ class Datafilter
     }
 
     /**
+     * HTML for OUTPUT: purified by HTMLPurifier and returned as the purifier wrote it (entities stay encoded). The one
+     * call for HTML that came from outside and is printed raw (a Twig `|raw`, a markdown renderer's result). Sanitise
+     * once, at output, and never edit the result afterwards.
+     * @param string|null $html
+     * @return string
+     */
+    public static function sanitizeHtml(?string $html): string
+    {
+        if ($html === null || $html === '') {
+            return '';
+        }
+        if (!self::$htmlPurifier) {
+            self::initializePurifier();
+        }
+        return (string)self::$htmlPurifier->purify($html);
+    }
+
+    /**
+     * Cleans input for STORAGE: purified, then HTML entities decoded back to characters (`&lt;b&gt;` becomes `<b>`),
+     * because stored values are escaped when rendered. Never print the result as raw HTML: an encoded tag a user typed
+     * comes back as a real tag. For HTML output use {@see sanitizeHtml()}.
+     *
      * @param string|array|int|float|bool|null $input
      *
      * @return string|array|int|float|bool|null

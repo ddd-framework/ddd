@@ -461,6 +461,30 @@ For an app whose Composer root is `app/` and whose frontend is `web/`:
 4. CI or session start: `php app/vendor/bin/ddd-link-skills --check` (or `pnpm --dir web exec ddd-web link-skills
    --check`).
 
+### Untrusted Input
+
+Bytes and strings the server did not produce are never executed or interpreted as code. Core ships the helpers
+(`DDD\Infrastructure\Untrusted`): `RasterImageDecoder` (fixed-format Imagick decode of JPEG/PNG/GIF/WebP/HEIC only),
+`GuardedHttpFetchService` (public-address guard per hop, pinned connect, byte and time caps), `SafeXml`,
+`ContainedPath`, `IsolatedProcess`, `ArchiveInspector`, `UntrustedContentResponseDto` (attachment, `nosniff`,
+`CSP: sandbox`), `ExcelDocument::writeCellValue()` and `Datafilter::sanitizeHtml()`.
+
+What an application does:
+
+1. Add the sink scan to its suite and list its own justified raw calls in `config/untrusted-sinks-allowlist.php`:
+   ```php
+   class UntrustedSinkScanTest extends \DDD\Testing\UntrustedInput\UntrustedSinkScanTestCase
+   {
+       protected function getPackageRootDirectory(): string { return dirname(__DIR__); }
+   }
+   ```
+2. Reuse the behaviour tests: `use \DDD\Testing\UntrustedInput\UntrustedInputBehaviourTestTrait;` in a test class.
+3. Ship an ImageMagick allow-list `policy.xml`, remove Ghostscript, and run `php bin/console
+   app:untrusted-input:check-runtime` in the image build (exit 1 when ImageMagick reads PS/PDF/SVG/MVG or `gs` is on
+   the PATH). PDF pages and text need poppler (`pdftoppm`, `pdftotext`), OCR needs `tesseract`.
+
+Details: skill `ddd-untrusted-input-specialist`; changes per version: `CHANGELOG.md`.
+
 ### Entity Attributes
 
 | Attribute | Purpose |

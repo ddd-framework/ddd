@@ -6,14 +6,23 @@ namespace DDD\Domain\Common\Entities\MediaItems;
 
 use DDD\Infrastructure\Base\DateTime\DateTime;
 use DDD\Infrastructure\Exceptions\InternalErrorException;
+use DDD\Infrastructure\Untrusted\UntrustedContentHeaders;
 use DDD\Infrastructure\Validation\Constraints\Choice;
 use Exception;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use Stringable;
 
+/**
+ * An XLSX document. Cell values are data, never formulas: a string is written as text unless it is a plain number
+ * (`=HYPERLINK(…)` from a user stays the visible text `=HYPERLINK(…)`), and the writer never pre-calculates formulas.
+ * Code that fills a worksheet of {@see getSpreadsheet()} itself writes through {@see writeCellValue()}.
+ */
 class ExcelDocument extends Document
 {
     /** @var string|null The type of the mediaitem */
@@ -88,7 +97,9 @@ class ExcelDocument extends Document
         $sheet->setTitle(self::cleanSheetTitle($sheetTitle));
 
         if ($headers) {
-            $sheet->fromArray($headers, null, 'A1');
+            foreach (array_values($headers) as $headerIndex => $header) {
+                static::writeCellValue($sheet, Coordinate::stringFromColumnIndex($headerIndex + 1) . '1', $header);
+            }
             $lastColumn = Coordinate::stringFromColumnIndex(count($headers));
             $sheet->getStyle('A1:' . $lastColumn . '1')->applyFromArray([
                 'font' => ['bold' => true],
@@ -103,7 +114,7 @@ class ExcelDocument extends Document
                     $sheet->setCellValue($cellCoordinate, ExcelDate::PHPToExcel($value));
                     $sheet->getStyle($cellCoordinate)->getNumberFormat()->setFormatCode('yyyy-mm-dd hh:mm:ss');
                 } else {
-                    $sheet->setCellValue($cellCoordinate, $value);
+                    static::writeCellValue($sheet, $cellCoordinate, $value);
                     // Apply number format for numeric values with decimals
                     if (is_numeric($value) && !is_int($value) && (float)$value == $value) {
                         $sheet->getStyle($cellCoordinate)->getNumberFormat()->setFormatCode('0.0');
@@ -134,11 +145,44 @@ class ExcelDocument extends Document
         self::createSheetFromArray($spreadsheet, self::cleanSheetTitle($sheetTitle), $data, $headers);
 
         // Update the binary content after modifying the spreadsheet
-        $writer = new Xlsx($spreadsheet);
+        $writer = static::createXlsxWriter($spreadsheet);
         ob_start();
         $writer->save('php://output');
         $this->mediaItemContent->body = ob_get_clean();
         return $this;
+    }
+
+    /**
+     * Writes one cell as data: a string that is not a plain number is stored as text, so a value starting with `=`
+     * never becomes a formula (neither evaluated by the writer nor live in the recipient's spreadsheet program).
+     * @param Worksheet $worksheet
+     * @param string $cellCoordinate e.g. `B7`
+     * @param mixed $value
+     * @return void
+     */
+    public static function writeCellValue(Worksheet $worksheet, string $cellCoordinate, mixed $value): void
+    {
+        if (is_string($value) && !is_numeric($value)) {
+            $worksheet->setCellValueExplicit($cellCoordinate, $value, DataType::TYPE_STRING);
+            return;
+        }
+        if (is_string($value) || is_int($value) || is_float($value) || is_bool($value) || $value === null) {
+            $worksheet->setCellValue($cellCoordinate, $value);
+            return;
+        }
+        $worksheet->setCellValueExplicit($cellCoordinate, is_scalar($value) || $value instanceof Stringable ? (string)$value : '', DataType::TYPE_STRING);
+    }
+
+    /**
+     * The XLSX writer of every save: formulas are never pre-calculated on our server.
+     * @param Spreadsheet $spreadsheet
+     * @return Xlsx
+     */
+    public static function createXlsxWriter(Spreadsheet $spreadsheet): Xlsx
+    {
+        $writer = new Xlsx($spreadsheet);
+        $writer->setPreCalculateFormulas(false);
+        return $writer;
     }
 
     public static function cleanSheetTitle(string $title): string
@@ -182,7 +226,7 @@ class ExcelDocument extends Document
         $excelDocument->mediaItemContent = new GenericMediaItemContent();
         $excelDocument->addChildren($excelDocument->mediaItemContent);
 
-        $writer = new Xlsx($spreadsheet);
+        $writer = static::createXlsxWriter($spreadsheet);
         ob_start();
         $writer->save('php://output');
         $excelDocument->mediaItemContent->body = ob_get_clean();
@@ -220,7 +264,8 @@ class ExcelDocument extends Document
     {
         // Set headers to force download
         header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        header('Content-Disposition: attachment; filename="' . $this->getFileName() . '"');
+        header('Content-Disposition: ' . UntrustedContentHeaders::buildContentDisposition(false, $this->getFileName()));
+        header('X-Content-Type-Options: nosniff');
         header('Content-Length: ' . strlen($this->mediaItemContent->body));
         header('Cache-Control: max-age=0');
 

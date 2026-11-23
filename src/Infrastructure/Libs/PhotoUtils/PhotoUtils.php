@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace DDD\Infrastructure\Libs\PhotoUtils;
 
 use DDD\Infrastructure\Exceptions\InternalErrorException;
+use DDD\Infrastructure\Services\DDDService;
+use DDD\Infrastructure\Services\GuardedHttpFetchService;
+use DDD\Infrastructure\Untrusted\RasterImageDecoder;
 use Exception;
 use Imagick;
 use ImagickException;
@@ -88,9 +91,9 @@ class PhotoUtils
         array $supportedFormats = ['png', 'jpg', 'jpeg'],
     ): ?string {
         try {
-            // Create an Imagick object from the image content
-            $imagick = new Imagick();
-            $imagick->readImageBlob($imageBlob);
+            // Only JPEG, PNG, GIF, WebP and HEIC are decoded, with their coder fixed: anything else (PostScript, SVG,
+            // MVG, PDF, …) is refused before Imagick sees it (UnsupportedImageFormatException is an ImagickException)
+            $imagick = RasterImageDecoder::readBlob($imageBlob);
 
             if ($imagick->getImageColorspace() == Imagick::COLORSPACE_CMYK) {
                 $cmykProfilePath = __DIR__ . '/Resources/USWebCoatedSWOP.icc';
@@ -231,8 +234,7 @@ class PhotoUtils
             return [$imageBlob];
         }
         try {
-            $imagick = new Imagick();
-            $imagick->readImageBlob($imageBlob);
+            $imagick = RasterImageDecoder::readBlob($imageBlob);
             $width = $imagick->getImageWidth();
             $height = $imagick->getImageHeight();
             $format = $imagick->getImageFormat();
@@ -283,15 +285,21 @@ class PhotoUtils
         return $locationIdAndMediaItemIdentifierArray;
     }
 
+    /**
+     * Fetches an image from a URL through {@see GuardedHttpFetchService} (public addresses only, pinned connect,
+     * byte cap) and returns it base64-encoded when its bytes are an allowed raster image.
+     * @param string $imageUrl http(s) URL; a local path is refused
+     * @return string|null
+     */
     public static function getImageBase64FromUrl(string $imageUrl): ?string
     {
-        $imageContent = file_get_contents($imageUrl);
-
-        if ($imageContent === false) {
+        /** @var GuardedHttpFetchService $guardedHttpFetchService */
+        $guardedHttpFetchService = DDDService::instance()->getService(GuardedHttpFetchService::class);
+        $guardedHttpFetchResult = $guardedHttpFetchService->fetch($imageUrl, 20971520);
+        if (!$guardedHttpFetchResult->isSuccessful() || $guardedHttpFetchResult->isTruncated || !RasterImageDecoder::isAllowed($guardedHttpFetchResult->body)) {
             return null;
         }
-
-        return base64_encode($imageContent);
+        return base64_encode($guardedHttpFetchResult->body);
     }
 
     /**

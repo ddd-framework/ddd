@@ -1,0 +1,23 @@
+<?php
+
+namespace Fixture;
+
+use Symfony\Component\Process\Process;
+
+class SinkCalls
+{
+    public function run($requestDto, $imagick, $bytes)
+    {
+        exec('ls');
+        `ls`;
+        eval('1;');
+        unserialize($bytes);
+        unserialize($bytes, ['allowed_classes' => false]);
+        $imagick->readImageBlob($bytes);
+        new \SimpleXMLElement($bytes);
+        Process::fromShellCommandline('ls');
+        new Process(['ls']);
+        file_get_contents('/var/' . $requestDto->path);
+        file_get_contents('/var/fixed');
+    }
+}

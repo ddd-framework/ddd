@@ -6,6 +6,7 @@ namespace DDD\Presentation\Base\Dtos;
 
 use DDD\Domain\Common\Entities\MediaItems\ExcelDocument;
 use DDD\Infrastructure\Traits\Serializer\Attributes\HideProperty;
+use DDD\Infrastructure\Untrusted\UntrustedContentHeaders;
 use Symfony\Component\HttpFoundation\ResponseHeaderBag;
 
 class ExcelResponseDto extends FileResponseDto
@@ -39,7 +40,7 @@ class ExcelResponseDto extends FileResponseDto
         $excelResponseDto = new ExcelResponseDto(
             $excelDocument->mediaItemContent->getBody(),
             headers: [
-                'Content-Disposition' => 'attachment; filename="' . ($excelDocument->title ?? 'excel') . '.xlsx"',
+                'Content-Disposition' => UntrustedContentHeaders::buildContentDisposition(false, ($excelDocument->title ?? 'excel') . '.xlsx'),
                 'Content-Length' => strlen($excelDocument->mediaItemContent->getBody())
             ]
         );

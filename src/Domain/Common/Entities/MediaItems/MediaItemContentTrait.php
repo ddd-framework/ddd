@@ -5,6 +5,10 @@ namespace DDD\Domain\Common\Entities\MediaItems;
 use DDD\Infrastructure\Exceptions\Exception;
 use DDD\Infrastructure\Exceptions\NotFoundException;
 use DDD\Infrastructure\Libs\PhotoUtils\PhotoUtils;
+use DDD\Infrastructure\Services\DDDService;
+use DDD\Infrastructure\Services\GuardedHttpFetchService;
+use DDD\Infrastructure\Untrusted\RasterImageDecoder;
+use DDD\Infrastructure\Untrusted\UnsupportedImageFormatException;
 use DDD\Infrastructure\Traits\Serializer\Attributes\DontPersistProperty;
 use DDD\Infrastructure\Traits\Serializer\Attributes\HideProperty;
 use Imagick;
@@ -16,6 +20,9 @@ use Symfony\Component\HttpFoundation\File\UploadedFile;
  */
 trait MediaItemContentTrait
 {
+    /** @var int Largest image loadFromSource() reads (bytes) */
+    public const int MAX_SOURCE_BYTES = 20971520;
+
     /** @var string|null */
     public ?string $base64EncodedContent;
 
@@ -43,6 +50,9 @@ trait MediaItemContentTrait
 
     /** @var string|null Mediaitem external id */
     public ?string $externalId;
+
+    /** @var string|null md5 of the bytes width, height, size and format were measured from (never from a client) */
+    protected ?string $contentInfoMeasuredForBytesHash = null;
 
     /**
      * Returns the raw binary image blob.
@@ -80,28 +90,55 @@ trait MediaItemContentTrait
     }
 
     /**
-     * @return bool Returns true, if all relevant content infos are available
+     * True when width, height, size and format are known AND were measured by the server from the current bytes.
+     * Values a client sent with the content (`fileFormat: "text/html"`, a width) never count: whenever bytes are
+     * present they are measured again. Without bytes (an item loaded without its content) the stored values stand.
+     * @return bool
      */
     public function isMediaItemContentInfoGenerated(): bool
     {
-        return isset($this->width, $this->height, $this->fileSize, $this->fileFormat);
+        if (!isset($this->width, $this->height, $this->fileSize, $this->fileFormat)) {
+            return false;
+        }
+        $contentBytes = $this->getImageBlob();
+        if (!is_string($contentBytes) || $contentBytes === '') {
+            return true;
+        }
+        return $this->contentInfoMeasuredForBytesHash === md5($contentBytes);
     }
 
     /**
+     * Measures width, height, size and format from the bytes (never from what a client declared). An allowed raster
+     * image (JPEG, PNG, GIF, WebP, HEIC) is probed from its header; another image format getimagesize() reads keeps
+     * working; anything else is refused.
      * @throws Exception
      */
     public function populateMediaItemContentInfo(): void
     {
         $decodedImage = $this->getImageBlob();
-        $imageInfo = PhotoUtils::getImageInfoFromString($decodedImage);
-
-        if (!$imageInfo) {
+        if (!is_string($decodedImage) || $decodedImage === '') {
             throw new NotFoundException('Invalid image format');
         }
-
-        [$this->width, $this->height] = PhotoUtils::getImageWidthAndHeightFromString($decodedImage);
-        $this->fileSize = mb_strlen($decodedImage, '8bit');
-        $this->fileFormat = $imageInfo['mime'];
+        if (RasterImageDecoder::isAllowed($decodedImage)) {
+            try {
+                $rasterImageInfo = RasterImageDecoder::probe($decodedImage);
+            } catch (ImagickException) {
+                throw new NotFoundException('Invalid image format');
+            }
+            $this->width = $rasterImageInfo->width;
+            $this->height = $rasterImageInfo->height;
+            $this->fileFormat = $rasterImageInfo->mimeType;
+        } else {
+            $imageInfo = PhotoUtils::getImageInfoFromString($decodedImage);
+            if (!$imageInfo) {
+                throw new NotFoundException('Invalid image format');
+            }
+            $this->width = (int)$imageInfo[0];
+            $this->height = (int)$imageInfo[1];
+            $this->fileFormat = (string)$imageInfo['mime'];
+        }
+        $this->fileSize = strlen($decodedImage);
+        $this->contentInfoMeasuredForBytesHash = md5($decodedImage);
     }
 
     /**
@@ -125,6 +162,7 @@ trait MediaItemContentTrait
             $this->base64EncodedContent = base64_encode($this->body);
         }
         $this->fileSize = strlen($this->body); // File size in bytes
+        $this->contentInfoMeasuredForBytesHash = md5($this->body);
     }
 
     /**
@@ -176,11 +214,12 @@ trait MediaItemContentTrait
             throw new NotFoundException("Uploaded file is empty or unreadable: $path");
         }
 
-        $imagick = new Imagick();
-        $imagick->readImageBlob($content);
+        // only an allowed raster image is decoded, its coder fixed (UnsupportedImageFormatException otherwise)
+        $imagick = RasterImageDecoder::readBlob($content);
 
         $this->body = $content;
-        $this->name = $file->getClientOriginalName();
+        // the client's name is a label only: no directory part, no control characters
+        $this->name = trim(preg_replace('/[\x00-\x1F\x7F]+/u', '', basename(str_replace('\\', '/', $file->getClientOriginalName()))) ?? '');
         $this->populateMediaItemContentInfoFromImagick($imagick);
 
         $imagick->clear();
@@ -188,8 +227,11 @@ trait MediaItemContentTrait
     }
 
     /**
-     * Loads MediaItemContent from a local file or URL
-     * @param string $source Path to the local file or URL
+     * Loads MediaItemContent from a URL or a server-side file. A URL is fetched through
+     * {@see GuardedHttpFetchService} (public addresses only, pinned connect, re-checked redirects, byte cap); a path is
+     * read only as a plain local file (no stream wrapper such as `phar://`, `php://`, `data:`). Only an allowed raster
+     * image is decoded.
+     * @param string|null $source URL or absolute server path; null = the parent's public URL
      * @return void
      * @throws Exception
      * @throws NotFoundException
@@ -203,38 +245,34 @@ trait MediaItemContentTrait
         if (!$source) {
             throw new NotFoundException('No source specified');
         }
-        $contentIsUrl = strpos($source, 'http://') === 0 || strpos($source, 'https://') === 0;
+        $contentIsUrl = str_starts_with($source, 'http://') || str_starts_with($source, 'https://');
 
-        // Check if the source is a URL or a local file
         if ($contentIsUrl) {
-            // Use get_headers to check if the URL exists (only if it's a URL)
-            $headers = @get_headers($source);
-            if ($headers === false || strpos($headers[0], '404') !== false) {
-                throw new NotFoundException("URL not found: $source");
+            /** @var GuardedHttpFetchService $guardedHttpFetchService */
+            $guardedHttpFetchService = DDDService::instance()->getService(GuardedHttpFetchService::class);
+            $guardedHttpFetchResult = $guardedHttpFetchService->fetch($source, static::MAX_SOURCE_BYTES);
+            if (!$guardedHttpFetchResult->isSuccessful() || $guardedHttpFetchResult->isTruncated) {
+                throw new NotFoundException("Unable to read from URL: $source");
             }
-        } elseif (!file_exists($source)) {
-            // Check if the local file exists
-
-            throw new NotFoundException("File not found: $source");
+            $content = $guardedHttpFetchResult->body;
+        } else {
+            if (str_contains($source, '://') || str_starts_with($source, 'data:') || !is_file($source)) {
+                throw new NotFoundException("File not found: $source");
+            }
+            $content = @file_get_contents($source);
+            if ($content === false) {
+                throw new NotFoundException("Unable to read file: $source");
+            }
         }
 
-        // Get the content from the URL or local file
-        $content = @file_get_contents($source);
-        if ($content === false) {
-            throw new NotFoundException(
-                $contentIsUrl ? "Unable to read from URL: $source" : "Unable to read file: $source"
-            );
-        }
-
-        // Load the content into Imagick
-        $imagick = new Imagick();
         try {
-            $imagick->readImageBlob($content);
-        } catch (ImagickException $e) {
-            throw new NotFoundException('Unable to process image content: ' . $e->getMessage());
+            $imagick = RasterImageDecoder::readBlob($content);
+        } catch (UnsupportedImageFormatException $unsupportedImageFormatException) {
+            throw new NotFoundException('Unable to process image content: ' . $unsupportedImageFormatException->getMessage());
+        } catch (ImagickException $imagickException) {
+            throw new NotFoundException('Unable to process image content: ' . $imagickException->getMessage());
         }
 
-        // Populate media item content information from the Imagick instance
         $this->populateMediaItemContentInfoFromImagick($imagick);
     }
 

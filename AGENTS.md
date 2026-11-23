@@ -162,6 +162,20 @@ DDD modules are Composer packages that self-register via `extra.ddd-module` in `
 
 ---
 
+## Untrusted Input (mandatory)
+
+No byte or string from outside (uploads, mail, URLs and their responses, third-party API bodies, model output, drive
+or workspace files, a client's claims about type, name, size) is ever executed or interpreted as code. Decode images
+with `RasterImageDecoder`, fetch foreign URLs with `GuardedHttpFetchService`, parse XML with `SafeXml`, contain paths
+with `ContainedPath`, run tools as `IsolatedProcess`, inspect archives with `ArchiveInspector`, serve foreign bytes with
+`UntrustedContentResponseDto`, write spreadsheets through `ExcelDocument::writeCellValue()`, print HTML through
+`Datafilter::sanitizeHtml()` (`DDD\Infrastructure\Untrusted\…`). Any other raw sink call needs an entry with its
+reason in `config/untrusted-sinks-allowlist.php`; `tests/UntrustedSinkScanTest.php` (`UntrustedSinkScanTestCase`)
+enforces it. Rule, helpers, traps, ImageMagick policy: skill **`ddd-untrusted-input-specialist`** — load it before
+touching any of these call sites.
+
+---
+
 ## Domain Structure
 
 | Domain | Key Components |
@@ -504,6 +518,8 @@ Without the gate, a caller asking for "lite Entity without `setting`" pays an N-
 | Vendor skill links (bin) | `bin/ddd-link-skills`, `tools/SkillLinks/VendorSkillLinker.php` |
 | DDDBundle | `src/DDDBundle.php` |
 | DDDKernel | `src/Symfony/Kernels/DDDKernel.php` |
+| Untrusted-input helpers | `src/Infrastructure/Untrusted/`, `src/Infrastructure/Services/GuardedHttpFetchService.php` |
+| Sink scan, behaviour tests | `src/Testing/UntrustedInput/`, `config/untrusted-sinks-allowlist.php` |
 | Unit tests | `tests/` (`vendor/bin/phpunit`) |
 | Integration tests (real MariaDB) | `tests/Integration/` — `docker compose -f tests/Integration/docker-compose.yml up -d --wait`, then `DDD_TEST_DRIVER=pdo_mysql vendor/bin/phpunit -c phpunit.integration.xml`; fixture models via `php tests/Integration/generate-fixture-models.php` |
 
@@ -894,6 +910,7 @@ conventions; a class placed from memory or from a brief breaks every consuming a
 | Console command | `ddd-cli-command-specialist` |
 | Message + handler, transport, consumer, worker list, worker monitoring, workers admin endpoints | `ddd-message-handler-specialist` |
 | Issues logging, registry, client errors | `ddd-issues-log-specialist` |
+| Uploads, images, foreign URLs, XML, archives, converters, file downloads, spreadsheet exports | `ddd-untrusted-input-specialist` |
 
 - **Anything fetched with `getService()` lives in a public `…\Services\` namespace** of `services.yaml` and ends in
   `Service`. Elsewhere it is private in an application's compiled container: removed or inlined, and the fetch fails at

@@ -6,6 +6,7 @@ namespace DDD\Presentation\Base\Dtos;
 
 use DDD\Domain\Common\Entities\MediaItems\PDFDocument;
 use DDD\Infrastructure\Traits\Serializer\Attributes\HideProperty;
+use DDD\Infrastructure\Untrusted\UntrustedContentHeaders;
 use Symfony\Component\HttpFoundation\ResponseHeaderBag;
 
 class PDFResponseDto extends FileResponseDto
@@ -34,7 +35,7 @@ class PDFResponseDto extends FileResponseDto
         $pdfResponseDto = new PDFResponseDto(
             $pdfDocument->mediaItemContent->getBody(),
             headers: [
-                'Content-Disposition' => 'attachment; filename="' . $pdfDocument->getFileName() . '"',
+                'Content-Disposition' => UntrustedContentHeaders::buildContentDisposition(false, $pdfDocument->getFileName()),
                 'Content-Length' => strlen($pdfDocument->mediaItemContent->getBody())
             ]
         );
