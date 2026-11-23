@@ -61,6 +61,34 @@ abstract class DDDModule
     }
 
     /**
+     * Parts of the module that work only beside another package: namespace prefix => a class of that package. While
+     * the class does not exist, the module's classes below the prefix are no services and no entities of the model
+     * generator, so their files are never loaded; with the package installed they register like every other class.
+     * e.g. ['DDD\Domain\CloudDrive\Agents\' => 'DDD\Domain\AI\Entities\MCPPackages\MCPPackage']
+     *
+     * @return string[]
+     */
+    public static function getNamespacesRequiringClasses(): array
+    {
+        return [];
+    }
+
+    /**
+     * True when the class belongs to a part of the module whose required class is missing
+     * ({@see getNamespacesRequiringClasses()}).
+     */
+    public static function isClassOfAnInactivePart(string $className): bool
+    {
+        foreach (static::getNamespacesRequiringClasses() as $namespacePrefix => $requiredClassName) {
+            if (str_starts_with($className, $namespacePrefix)
+                && !class_exists($requiredClassName) && !interface_exists($requiredClassName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Controller directories available for routing.
      * Keys are route prefixes, values are absolute directory paths.
      * e.g. ['/api/batch' => __DIR__ . '/Presentation/Api/Batch']

@@ -408,7 +408,9 @@ Database tables and schema changes are managed **manually and separately** by th
 **What the framework DOES:**
 - On PostgreSQL, installs its own infrastructure — extensions, the `ddd_ci_ai` collation, the `ddd_*` SQL functions — via
   `app:db:postgres:install-extensions-collation-functions` (idempotent, run before the tables and on every deploy; see
-  the `ddd-database-schema-diff-specialist` skill, "Setting up a new PostgreSQL database")
+  the `ddd-database-schema-diff-specialist` skill, "Setting up a new PostgreSQL database"), including the text search
+  configurations `ddd_simple`, `ddd_german`, `ddd_english` (unaccent, then the language's stemmer;
+  `PostgresTextSearchConfiguration::forLanguageCode()`)
 - Creates PHP entity files
 - Creates PHP repository files
 - Creates PHP service files
@@ -540,6 +542,10 @@ abstract class DDDModule
 **Module services are registered like an application's resource block:** autowired and autoconfigured (handlers, commands, tagged interfaces work without application wiring); a class with `#[Exclude]` and an abstract class are no services; an interface's `#[AutoconfigureTag]` reaches its implementations; an interface with exactly one implementation in the module gets an alias; `#[AsAlias]` publishes an alias — an application alias of the same id wins.
 
 **Entity Discovery:** `EntityModelGeneratorService` scans framework, application, AND module `Domain/` directories for entity classes when generating database models.
+
+**Optional parts:** a module part that works only beside another package (e.g. its agent tools beside
+`mgamadeus/ddd-agents`) is declared with `getNamespacesRequiringClasses()` (namespace prefix => a class of that
+package): while the class is missing, its classes are neither services nor entities and their files are never loaded.
 
 **Config Priority:** App configs > Module configs > Framework configs.
 

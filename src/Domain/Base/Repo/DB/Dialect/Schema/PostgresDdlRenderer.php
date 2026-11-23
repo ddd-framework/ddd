@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace DDD\Domain\Base\Repo\DB\Dialect\Schema;
 
+use DDD\Domain\Base\Repo\DB\Dialect\Query\PostgresTextSearchConfiguration;
 use DDD\Domain\Base\Repo\DB\Database\DatabaseColumn;
 use DDD\Domain\Base\Repo\DB\Database\DatabaseForeignKey;
 use DDD\Domain\Base\Repo\DB\Database\DatabaseIndex;
@@ -81,6 +82,30 @@ class PostgresDdlRenderer implements DdlRenderer
             $statements[] = $statement;
         }
 
+        foreach ($this->ensureTextSearchConfigurationStatements() as $statement) {
+            $statements[] = $statement;
+        }
+
+        return DdlStatements::fromStatements(...$statements);
+    }
+
+    /**
+     * The text search configurations of {@see PostgresTextSearchConfiguration}: a copy of `simple` whose word tokens
+     * run through `unaccent`, then the configuration's dictionary. Created only when missing (PostgreSQL has no
+     * `CREATE TEXT SEARCH CONFIGURATION IF NOT EXISTS`); an existing one is left as it is.
+     */
+    protected function ensureTextSearchConfigurationStatements(): DdlStatements
+    {
+        $statements = [];
+        foreach (PostgresTextSearchConfiguration::DICTIONARY_BY_CONFIGURATION as $configuration => $dictionary) {
+            $statements[] = new DdlStatement(
+                sql: "DO \$ddd\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_ts_config WHERE cfgname = '$configuration') THEN "
+                    . "CREATE TEXT SEARCH CONFIGURATION public.$configuration (COPY = pg_catalog.simple); "
+                    . "ALTER TEXT SEARCH CONFIGURATION public.$configuration ALTER MAPPING FOR asciiword, asciihword, hword_asciipart, word, hword, hword_part WITH public.unaccent, $dictionary; "
+                    . "END IF; END \$ddd\$",
+                phase: DdlStatement::PHASE_FUNCTION,
+            );
+        }
         return DdlStatements::fromStatements(...$statements);
     }
 

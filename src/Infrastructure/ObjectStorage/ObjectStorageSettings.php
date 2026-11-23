@@ -42,6 +42,7 @@ class ObjectStorageSettings extends ValueObject
     public const string SETTING_MAX_DURATION_SECONDS = 'MAX_DURATION_SECONDS';
     public const string SETTING_MAX_RETRIES = 'MAX_RETRIES';
     public const string SETTING_HTTP_VERSION = 'HTTP_VERSION';
+    public const string SETTING_CONDITIONAL_WRITES = 'CONDITIONAL_WRITES';
 
     public const string HTTP_VERSION_1_1 = '1.1';
     public const string HTTP_VERSION_2_0 = '2.0';
@@ -75,6 +76,8 @@ class ObjectStorageSettings extends ValueObject
         public readonly ?int $maxRetries = null,
         /** @var string|null S3: the HTTP version, one of {@see self::HTTP_VERSIONS} (the HTTP client's `http_version`); null = the client's choice (HTTP/2 over https when curl supports it) */
         public readonly ?string $httpVersion = null,
+        /** @var bool S3: the store honours `If-None-Match: *` on PUT, copy and multipart completion; false = it ignores or refuses it */
+        public readonly bool $conditionalWrites = true,
     ) {
         parent::__construct();
     }
@@ -101,6 +104,7 @@ class ObjectStorageSettings extends ValueObject
             maxRetries: ($maxRetries = static::readSetting($storeName, self::SETTING_MAX_RETRIES, 'maxRetries')) !== null
                 && ctype_digit($maxRetries) ? (int)$maxRetries : null,
             httpVersion: static::readHttpVersionSetting($storeName),
+            conditionalWrites: !in_array(strtolower(static::readSetting($storeName, self::SETTING_CONDITIONAL_WRITES, 'conditionalWrites') ?? 'true'), ['0', 'false', 'no', 'off'], true),
         );
     }
 

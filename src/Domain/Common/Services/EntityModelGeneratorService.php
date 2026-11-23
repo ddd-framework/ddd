@@ -129,8 +129,12 @@ class EntityModelGeneratorService
                 /** @var DDDModule $moduleClass */
                 $moduleDomainPath = $moduleClass::getSourcePath() . '/Domain';
                 if (is_dir($moduleDomainPath)) {
-                    $classesFromModule = ClassFinder::getClassesInDirectory($moduleDomainPath);
-                    $allClasses = array_merge($allClasses, $classesFromModule);
+                    foreach (ClassFinder::getClassesInDirectory($moduleDomainPath) as $classFromModule) {
+                        // a part that needs a package the application lacks is never loaded
+                        if (!$moduleClass::isClassOfAnInactivePart($classFromModule->getNameWithNamespace())) {
+                            $allClasses[] = $classFromModule;
+                        }
+                    }
                 }
             }
             /** @var ClassWithNamespace[] $entityClasses */

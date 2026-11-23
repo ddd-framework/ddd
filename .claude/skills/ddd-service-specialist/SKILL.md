@@ -829,10 +829,24 @@ $downloadUrl = $exportsObjectStorage->createTemporaryUrl("reports/{$report->id}.
 
 - **`DDD\Infrastructure\ObjectStorage\ObjectStorage`:** `putObject($key, $content, ?$contentType)`,
   `getObjectContent($key): ?string` (null = missing, not an error), `deleteObject($key)` (missing is fine),
-  `objectExists($key)`, `listObjects($keyPrefix = '', $limit = 1000): ObjectStorageObjects` (key order;
-  `{key, size, lastModified}`, `getKeys()`), `createTemporaryUrl($key, $expiresInSeconds = 3600)`. Keys are
+  `objectExists($key)`, `listObjects($keyPrefix = '', $limit = 1000, ?$startAfterKey): ObjectStorageObjects` (key
+  order; `{key, size, lastModified}`, `getKeys()`; continue a listing after its last key),
+  `createTemporaryUrl($key, $expiresInSeconds = 3600, ?$responseContentType, ?$responseContentDisposition)`. Keys are
   `/`-separated without a leading slash; the store's prefix is applied by the adapter. A backend failure throws
   `InternalErrorException` naming store, operation and key.
+- **Direct transfers and write-once objects:** `putObjectIfAbsent()` (false when an object exists),
+  `putObjectFromFile()` / `saveObjectToFile()` (streamed, no content in memory), `getObjectContentRange($key, $offset,
+  $length)`, `headObject($key): ?ObjectStorageObject` (size, `contentType`, `etag`, `checksumSha256`),
+  `copyObject($source, $target, $createOnly)` (inside the store, multipart above 5 GiB), `deleteObjects(string[])`.
+  `createTemporaryUploadRequest($key, …, $contentType, $createOnly = true, $checksumSha256)` answers an
+  `ObjectStoragePresignedRequest` (`method`, `url`, `headers` the client sends unchanged, `expiresAt`): create-only
+  signs `If-None-Match: *` into the URL (own SigV4 signer, `S3PresignedRequestSigner`; async-aws's presign drops
+  conditional headers), so a URL never replaces an object. Multipart: `createMultipartUpload()`,
+  `createTemporaryUploadPartRequest($key, $uploadId, $partNumber)`, `listUploadedParts()`,
+  `completeMultipartUpload($key, $uploadId, ?$parts, $createOnly = true)` (without parts: the ones the store holds),
+  `abortMultipartUpload()`. A store that ignores `If-None-Match` sets `conditionalWrites: false`
+  (`OBJECT_STORAGE_<NAME>_CONDITIONAL_WRITES`); `supportsConditionalWrites()` tells a caller to upload to a staging
+  key and copy on the server instead. The filesystem driver answers `file://` requests (development only).
 - **Retries:** the s3 adapter does not retry itself — async-aws does: 3 retries with 1 s / 2 s / 4 s backoff on
   transport errors, 429, 5xx and `SlowDown` / `Throttling` answers, for every method. `ObjectStorageService` passes the
   application logger, so each retry is logged at level **info** (`Try #n after …ms`). An `InternalErrorException`

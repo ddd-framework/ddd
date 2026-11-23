@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace DDD\Infrastructure\ObjectStorage;
 
+use AsyncAws\Core\Exception\Http\ClientException;
 use AsyncAws\S3\Exception\NoSuchKeyException;
+use AsyncAws\S3\Exception\NoSuchUploadException;
 use AsyncAws\S3\Input\GetObjectRequest;
 use AsyncAws\Core\AwsError\XmlAwsErrorFactory;
 use AsyncAws\Core\HttpClient\AwsRetryStrategy;
@@ -36,6 +38,16 @@ class S3CompatibleObjectStorage implements ObjectStorage
     public const string REQUIRED_PACKAGE = 'async-aws/s3';
     /** async-aws's own retry count, kept when a store sets only a timeout */
     public const int DEFAULT_MAX_RETRIES = 3;
+    /** The largest object a single CopyObject request copies; above it the copy runs as a multipart copy */
+    public const int MAX_SINGLE_COPY_BYTES = 5368709120;
+    /** Part size of a multipart copy */
+    public const int MULTIPART_COPY_PART_BYTES = 1073741824;
+    /** Keys per DeleteObjects request */
+    public const int MAX_KEYS_PER_DELETE = 1000;
+    public const int HTTP_STATUS_NOT_FOUND = 404;
+    public const int HTTP_STATUS_CONFLICT = 409;
+    public const int HTTP_STATUS_PRECONDITION_FAILED = 412;
+    public const int HTTP_STATUS_RANGE_NOT_SATISFIABLE = 416;
 
     protected ?S3Client $s3Client = null;
 
@@ -112,14 +124,18 @@ class S3CompatibleObjectStorage implements ObjectStorage
         }
     }
 
-    public function listObjects(string $keyPrefix = '', int $limit = 1000): ObjectStorageObjects
+    public function listObjects(string $keyPrefix = '', int $limit = 1000, ?string $startAfterKey = null): ObjectStorageObjects
     {
         $objectStorageObjects = new ObjectStorageObjects();
         try {
-            $listObjectsOutput = $this->getS3Client()->listObjectsV2([
+            $listObjectsRequest = [
                 'Bucket' => $this->objectStorageSettings->bucket,
                 'Prefix' => $this->getStorageKey($keyPrefix, allowEmpty: true),
-            ]);
+            ];
+            if ($startAfterKey !== null && $startAfterKey !== '') {
+                $listObjectsRequest['StartAfter'] = $this->getStorageKey($startAfterKey);
+            }
+            $listObjectsOutput = $this->getS3Client()->listObjectsV2($listObjectsRequest);
             foreach ($listObjectsOutput->getContents() as $awsObject) {
                 if ($objectStorageObjects->count() >= $limit) {
                     break;
@@ -138,16 +154,445 @@ class S3CompatibleObjectStorage implements ObjectStorage
         return $objectStorageObjects;
     }
 
-    public function createTemporaryUrl(string $key, int $expiresInSeconds = 3600): string
-    {
+    public function createTemporaryUrl(
+        string $key,
+        int $expiresInSeconds = 3600,
+        ?string $responseContentType = null,
+        ?string $responseContentDisposition = null
+    ): string {
+        $queryParameters = [];
+        if ($responseContentType !== null) {
+            $queryParameters['response-content-type'] = $responseContentType;
+        }
+        if ($responseContentDisposition !== null) {
+            $queryParameters['response-content-disposition'] = $responseContentDisposition;
+        }
         try {
-            return $this->getS3Client()->presign(
-                new GetObjectRequest(['Bucket' => $this->objectStorageSettings->bucket, 'Key' => $this->getStorageKey($key)]),
-                new DateTimeImmutable('+' . max(1, $expiresInSeconds) . ' seconds')
-            );
+            if ($queryParameters === [] || !$this->hasCredentials()) {
+                return $this->getS3Client()->presign(
+                    new GetObjectRequest(array_merge(
+                        ['Bucket' => $this->objectStorageSettings->bucket, 'Key' => $this->getStorageKey($key)],
+                        $responseContentType !== null ? ['ResponseContentType' => $responseContentType] : [],
+                        $responseContentDisposition !== null ? ['ResponseContentDisposition' => $responseContentDisposition] : []
+                    )),
+                    new DateTimeImmutable('+' . max(1, $expiresInSeconds) . ' seconds')
+                );
+            }
+            return $this->createPresignedRequestSigner()->createPresignedRequest(
+                ObjectStoragePresignedRequest::METHOD_GET,
+                $this->getStorageKey($key),
+                $expiresInSeconds,
+                $queryParameters
+            )->url;
         } catch (Throwable $throwable) {
             throw $this->createStorageException('presign', $key, $throwable);
         }
+    }
+
+    public function putObjectIfAbsent(string $key, string $content, ?string $contentType = null): bool
+    {
+        $putObjectRequest = [
+            'Bucket' => $this->objectStorageSettings->bucket,
+            'Key' => $this->getStorageKey($key),
+            'Body' => $content,
+            'IfNoneMatch' => '*',
+        ];
+        if ($contentType !== null) {
+            $putObjectRequest['ContentType'] = $contentType;
+        }
+        try {
+            $this->getS3Client()->putObject($putObjectRequest)->resolve();
+            return true;
+        } catch (Throwable $throwable) {
+            if ($this->isConditionFailure($throwable)) {
+                return false;
+            }
+            throw $this->createStorageException('put', $key, $throwable);
+        }
+    }
+
+    public function putObjectFromFile(string $key, string $filePath, ?string $contentType = null): void
+    {
+        $fileHandle = @fopen($filePath, 'rb');
+        if ($fileHandle === false) {
+            throw new InternalErrorException(sprintf('Object storage "%s": cannot read %s', $this->objectStorageSettings->name, $filePath));
+        }
+        $putObjectRequest = [
+            'Bucket' => $this->objectStorageSettings->bucket,
+            'Key' => $this->getStorageKey($key),
+            'Body' => $fileHandle,
+            'ContentLength' => (int)filesize($filePath),
+        ];
+        if ($contentType !== null) {
+            $putObjectRequest['ContentType'] = $contentType;
+        }
+        try {
+            $this->getS3Client()->putObject($putObjectRequest)->resolve();
+        } catch (Throwable $throwable) {
+            throw $this->createStorageException('put', $key, $throwable);
+        } finally {
+            if (is_resource($fileHandle)) {
+                fclose($fileHandle);
+            }
+        }
+    }
+
+    public function saveObjectToFile(string $key, string $filePath): bool
+    {
+        try {
+            $getObjectOutput = $this->getS3Client()->getObject([
+                'Bucket' => $this->objectStorageSettings->bucket,
+                'Key' => $this->getStorageKey($key),
+            ]);
+            $fileHandle = @fopen($filePath, 'wb');
+            if ($fileHandle === false) {
+                throw new InternalErrorException('cannot write ' . $filePath);
+            }
+            try {
+                foreach ($getObjectOutput->getBody()->getChunks() as $chunk) {
+                    fwrite($fileHandle, $chunk);
+                }
+            } finally {
+                fclose($fileHandle);
+            }
+            return true;
+        } catch (NoSuchKeyException) {
+            return false;
+        } catch (Throwable $throwable) {
+            if ($this->getHttpStatusCode($throwable) === self::HTTP_STATUS_NOT_FOUND) {
+                return false;
+            }
+            throw $this->createStorageException('get', $key, $throwable);
+        }
+    }
+
+    public function getObjectContentRange(string $key, int $offset, int $length): ?string
+    {
+        if ($length <= 0) {
+            return $this->objectExists($key) ? '' : null;
+        }
+        try {
+            return $this->getS3Client()->getObject([
+                'Bucket' => $this->objectStorageSettings->bucket,
+                'Key' => $this->getStorageKey($key),
+                'Range' => 'bytes=' . max(0, $offset) . '-' . (max(0, $offset) + $length - 1),
+            ])->getBody()->getContentAsString();
+        } catch (NoSuchKeyException) {
+            return null;
+        } catch (Throwable $throwable) {
+            if ($this->getHttpStatusCode($throwable) === self::HTTP_STATUS_RANGE_NOT_SATISFIABLE) {
+                return '';
+            }
+            if ($this->getHttpStatusCode($throwable) === self::HTTP_STATUS_NOT_FOUND) {
+                return null;
+            }
+            throw $this->createStorageException('get range', $key, $throwable);
+        }
+    }
+
+    public function headObject(string $key): ?ObjectStorageObject
+    {
+        try {
+            $headObjectOutput = $this->getS3Client()->headObject([
+                'Bucket' => $this->objectStorageSettings->bucket,
+                'Key' => $this->getStorageKey($key),
+                'ChecksumMode' => 'ENABLED',
+            ]);
+            $headObjectOutput->resolve();
+            $objectStorageObject = new ObjectStorageObject();
+            $objectStorageObject->key = ltrim($key, '/');
+            $objectStorageObject->size = $headObjectOutput->getContentLength();
+            $objectStorageObject->contentType = $headObjectOutput->getContentType();
+            $objectStorageObject->etag = $headObjectOutput->getEtag() !== null ? trim($headObjectOutput->getEtag(), '"') : null;
+            $objectStorageObject->checksumSha256 = $headObjectOutput->getChecksumSha256();
+            $objectStorageObject->lastModified = $headObjectOutput->getLastModified() !== null
+                ? DateTime::fromTimestamp($headObjectOutput->getLastModified()->getTimestamp())
+                : null;
+            return $objectStorageObject;
+        } catch (NoSuchKeyException) {
+            return null;
+        } catch (Throwable $throwable) {
+            if ($this->getHttpStatusCode($throwable) === self::HTTP_STATUS_NOT_FOUND) {
+                return null;
+            }
+            throw $this->createStorageException('head', $key, $throwable);
+        }
+    }
+
+    public function copyObject(string $sourceKey, string $targetKey, bool $createOnly = false): bool
+    {
+        $sourceObject = $this->headObject($sourceKey);
+        if ($sourceObject === null) {
+            throw new InternalErrorException(sprintf(
+                'Object storage "%s": copy of "%s" failed: no such object',
+                $this->objectStorageSettings->name,
+                $sourceKey
+            ));
+        }
+        // Not every store honours If-None-Match on a copy (SeaweedFS ignores it): look first, then copy conditionally
+        if ($createOnly && $this->objectExists($targetKey)) {
+            return false;
+        }
+        if (($sourceObject->size ?? 0) > self::MAX_SINGLE_COPY_BYTES) {
+            return $this->copyObjectInParts($sourceKey, $targetKey, (int)$sourceObject->size, $sourceObject->contentType, $createOnly);
+        }
+        $copyObjectRequest = [
+            'Bucket' => $this->objectStorageSettings->bucket,
+            'Key' => $this->getStorageKey($targetKey),
+            'CopySource' => $this->getCopySource($sourceKey),
+        ];
+        if ($createOnly) {
+            $copyObjectRequest['IfNoneMatch'] = '*';
+        }
+        try {
+            $this->getS3Client()->copyObject($copyObjectRequest)->resolve();
+            return true;
+        } catch (Throwable $throwable) {
+            if ($createOnly && $this->isConditionFailure($throwable)) {
+                return false;
+            }
+            throw $this->createStorageException('copy to "' . $targetKey . '"', $sourceKey, $throwable);
+        }
+    }
+
+    /** A copy above the single-request limit: a multipart upload whose parts are server-side copies of byte ranges */
+    protected function copyObjectInParts(string $sourceKey, string $targetKey, int $size, ?string $contentType, bool $createOnly): bool
+    {
+        $uploadId = $this->createMultipartUpload($targetKey, $contentType);
+        try {
+            $uploadedParts = new ObjectStorageUploadedParts();
+            $partNumber = 1;
+            for ($rangeStart = 0; $rangeStart < $size; $rangeStart += self::MULTIPART_COPY_PART_BYTES) {
+                $rangeEnd = min($size, $rangeStart + self::MULTIPART_COPY_PART_BYTES) - 1;
+                $uploadPartCopyOutput = $this->getS3Client()->uploadPartCopy([
+                    'Bucket' => $this->objectStorageSettings->bucket,
+                    'Key' => $this->getStorageKey($targetKey),
+                    'UploadId' => $uploadId,
+                    'PartNumber' => $partNumber,
+                    'CopySource' => $this->getCopySource($sourceKey),
+                    'CopySourceRange' => 'bytes=' . $rangeStart . '-' . $rangeEnd,
+                ]);
+                $uploadedPart = new ObjectStorageUploadedPart();
+                $uploadedPart->partNumber = $partNumber;
+                $uploadedPart->etag = trim((string)$uploadPartCopyOutput->getCopyPartResult()?->getEtag(), '"');
+                $uploadedPart->size = $rangeEnd - $rangeStart + 1;
+                $uploadedParts->add($uploadedPart);
+                $partNumber++;
+            }
+            $completed = $this->completeMultipartUpload($targetKey, $uploadId, $uploadedParts, $createOnly);
+        } catch (Throwable $throwable) {
+            $this->abortMultipartUpload($targetKey, $uploadId);
+            throw $throwable instanceof InternalErrorException
+                ? $throwable
+                : $this->createStorageException('copy to "' . $targetKey . '"', $sourceKey, $throwable);
+        }
+        if (!$completed) {
+            $this->abortMultipartUpload($targetKey, $uploadId);
+        }
+        return $completed;
+    }
+
+    public function deleteObjects(array $keys): void
+    {
+        $keys = array_values(array_unique(array_filter(array_map('strval', $keys), 'strlen')));
+        foreach (array_chunk($keys, self::MAX_KEYS_PER_DELETE) as $keyChunk) {
+            $objectIdentifiers = [];
+            foreach ($keyChunk as $key) {
+                $objectIdentifiers[] = ['Key' => $this->getStorageKey($key)];
+            }
+            try {
+                $this->getS3Client()->deleteObjects([
+                    'Bucket' => $this->objectStorageSettings->bucket,
+                    'Delete' => ['Objects' => $objectIdentifiers, 'Quiet' => true],
+                ])->resolve();
+            } catch (Throwable $throwable) {
+                throw $this->createStorageException('delete', implode('", "', array_slice($keyChunk, 0, 3)) . (count($keyChunk) > 3 ? '" …' : ''), $throwable);
+            }
+        }
+    }
+
+    public function createTemporaryUploadRequest(
+        string $key,
+        int $expiresInSeconds = 3600,
+        ?string $contentType = null,
+        bool $createOnly = true,
+        ?string $checksumSha256 = null
+    ): ObjectStoragePresignedRequest {
+        $headers = [];
+        if ($createOnly && $this->supportsConditionalWrites()) {
+            $headers['If-None-Match'] = '*';
+        }
+        if ($contentType !== null) {
+            $headers['Content-Type'] = $contentType;
+        }
+        if ($checksumSha256 !== null) {
+            $headers['x-amz-checksum-sha256'] = $checksumSha256;
+        }
+        try {
+            return $this->createPresignedRequestSigner()->createPresignedRequest(
+                ObjectStoragePresignedRequest::METHOD_PUT,
+                $this->getStorageKey($key),
+                $expiresInSeconds,
+                headers: $headers
+            );
+        } catch (Throwable $throwable) {
+            throw $throwable instanceof InternalErrorException ? $throwable : $this->createStorageException('presign upload', $key, $throwable);
+        }
+    }
+
+    public function createMultipartUpload(string $key, ?string $contentType = null): string
+    {
+        $createMultipartUploadRequest = [
+            'Bucket' => $this->objectStorageSettings->bucket,
+            'Key' => $this->getStorageKey($key),
+        ];
+        if ($contentType !== null) {
+            $createMultipartUploadRequest['ContentType'] = $contentType;
+        }
+        try {
+            $uploadId = $this->getS3Client()->createMultipartUpload($createMultipartUploadRequest)->getUploadId();
+        } catch (Throwable $throwable) {
+            throw $this->createStorageException('start multipart upload', $key, $throwable);
+        }
+        if ($uploadId === null || $uploadId === '') {
+            throw new InternalErrorException(sprintf('Object storage "%s": start multipart upload of "%s" failed: no upload id', $this->objectStorageSettings->name, $key));
+        }
+        return $uploadId;
+    }
+
+    public function createTemporaryUploadPartRequest(
+        string $key,
+        string $uploadId,
+        int $partNumber,
+        int $expiresInSeconds = 3600
+    ): ObjectStoragePresignedRequest {
+        try {
+            return $this->createPresignedRequestSigner()->createPresignedRequest(
+                ObjectStoragePresignedRequest::METHOD_PUT,
+                $this->getStorageKey($key),
+                $expiresInSeconds,
+                ['partNumber' => (string)$partNumber, 'uploadId' => $uploadId]
+            );
+        } catch (Throwable $throwable) {
+            throw $throwable instanceof InternalErrorException ? $throwable : $this->createStorageException('presign part', $key, $throwable);
+        }
+    }
+
+    public function listUploadedParts(string $key, string $uploadId): ObjectStorageUploadedParts
+    {
+        $uploadedParts = new ObjectStorageUploadedParts();
+        try {
+            $listPartsOutput = $this->getS3Client()->listParts([
+                'Bucket' => $this->objectStorageSettings->bucket,
+                'Key' => $this->getStorageKey($key),
+                'UploadId' => $uploadId,
+            ]);
+            $partsByNumber = [];
+            foreach ($listPartsOutput->getParts() as $awsPart) {
+                $uploadedPart = new ObjectStorageUploadedPart();
+                $uploadedPart->partNumber = (int)$awsPart->getPartNumber();
+                $uploadedPart->etag = trim((string)$awsPart->getEtag(), '"');
+                $uploadedPart->size = $awsPart->getSize();
+                $partsByNumber[$uploadedPart->partNumber] = $uploadedPart;
+            }
+            ksort($partsByNumber);
+            foreach ($partsByNumber as $uploadedPart) {
+                $uploadedParts->add($uploadedPart);
+            }
+        } catch (Throwable $throwable) {
+            throw $this->createStorageException('list parts', $key, $throwable);
+        }
+        return $uploadedParts;
+    }
+
+    public function completeMultipartUpload(
+        string $key,
+        string $uploadId,
+        ?ObjectStorageUploadedParts $uploadedParts = null,
+        bool $createOnly = true
+    ): bool {
+        $uploadedParts ??= $this->listUploadedParts($key, $uploadId);
+        $completedParts = [];
+        foreach ($uploadedParts->getElements() as $uploadedPart) {
+            $completedParts[] = ['PartNumber' => $uploadedPart->partNumber, 'ETag' => '"' . trim($uploadedPart->etag, '"') . '"'];
+        }
+        $completeMultipartUploadRequest = [
+            'Bucket' => $this->objectStorageSettings->bucket,
+            'Key' => $this->getStorageKey($key),
+            'UploadId' => $uploadId,
+            'MultipartUpload' => ['Parts' => $completedParts],
+        ];
+        if ($createOnly && $this->supportsConditionalWrites()) {
+            $completeMultipartUploadRequest['IfNoneMatch'] = '*';
+        }
+        try {
+            $this->getS3Client()->completeMultipartUpload($completeMultipartUploadRequest)->resolve();
+            return true;
+        } catch (Throwable $throwable) {
+            if ($createOnly && $this->isConditionFailure($throwable)) {
+                return false;
+            }
+            throw $this->createStorageException('complete multipart upload', $key, $throwable);
+        }
+    }
+
+    public function abortMultipartUpload(string $key, string $uploadId): void
+    {
+        try {
+            $this->getS3Client()->abortMultipartUpload([
+                'Bucket' => $this->objectStorageSettings->bucket,
+                'Key' => $this->getStorageKey($key),
+                'UploadId' => $uploadId,
+            ])->resolve();
+        } catch (NoSuchUploadException) {
+            return;
+        } catch (Throwable $throwable) {
+            if ($this->getHttpStatusCode($throwable) === self::HTTP_STATUS_NOT_FOUND) {
+                return;
+            }
+            throw $this->createStorageException('abort multipart upload', $key, $throwable);
+        }
+    }
+
+    public function supportsConditionalWrites(): bool
+    {
+        return $this->objectStorageSettings->conditionalWrites;
+    }
+
+    /** The signer of presigned requests that carry signed headers; the method a test overrides */
+    protected function createPresignedRequestSigner(): S3PresignedRequestSigner
+    {
+        return new S3PresignedRequestSigner($this->objectStorageSettings);
+    }
+
+    protected function hasCredentials(): bool
+    {
+        return $this->objectStorageSettings->accessKey !== null && $this->objectStorageSettings->secretKey !== null;
+    }
+
+    /** `bucket/key` of a copy source, URL-encoded per segment */
+    protected function getCopySource(string $sourceKey): string
+    {
+        return $this->objectStorageSettings->bucket . '/' . implode('/', array_map('rawurlencode', explode('/', $this->getStorageKey($sourceKey))));
+    }
+
+    /** True when a conditional write was refused because an object exists (412, or 409 for a concurrent conditional write) */
+    protected function isConditionFailure(Throwable $throwable): bool
+    {
+        $httpStatusCode = $this->getHttpStatusCode($throwable);
+        return $httpStatusCode === self::HTTP_STATUS_PRECONDITION_FAILED || $httpStatusCode === self::HTTP_STATUS_CONFLICT;
+    }
+
+    protected function getHttpStatusCode(Throwable $throwable): ?int
+    {
+        if ($throwable instanceof ClientException) {
+            try {
+                return $throwable->getResponse()->getStatusCode();
+            } catch (Throwable) {
+                return null;
+            }
+        }
+        return null;
     }
 
     protected function getS3Client(): S3Client

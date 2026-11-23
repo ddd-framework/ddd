@@ -183,7 +183,7 @@ class ModuleCompilerPass implements CompilerPassInterface
                     break;
                 }
             }
-            if ($skip) {
+            if ($skip || $moduleClass::isClassOfAnInactivePart($className)) {
                 continue;
             }
 
