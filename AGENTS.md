@@ -563,6 +563,14 @@ abstract class DDDModule
 `mgamadeus/ddd-agents`) is declared with `getNamespacesRequiringClasses()` (namespace prefix => a class of that
 package): while the class is missing, its classes are neither services nor entities and their files are never loaded.
 
+**Owned namespaces:** several packages may share a domain (`DDD\Domain\AI`, `DDD\Domain\Common`). A new package in a
+shared domain puts every class below `<Layer>\<Feature>\` and its config below `config/app/<Domain>/<Feature>/`, and
+declares its prefixes with `getOwnedNamespaces()` (default: none). `DDD\Testing\Modules\ModuleNamespacesTestCase` —
+one subclass in every module suite and every host suite (`getProjectDirectory()` only) — fails when two installed
+packages ship one class name or one `config/app/` file, or a package that declares owned namespaces has a class outside
+them. It reads the source files (no kernel, no class loaded); the application is no package there (its same-path
+classes and config files override on purpose).
+
 **Config Priority:** App configs > Module configs > Framework configs.
 
 ---

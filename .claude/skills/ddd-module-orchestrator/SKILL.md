@@ -155,6 +155,15 @@ The repository carries the Composer package at its root and the npm package `@mg
 it, and `release.yml` publishes `web/` through npm trusted publishing with provenance (it skips a version already on
 npm). The release workflow checks that the tag, `composer.json` and `web/package.json` agree.
 
+### Several packages in one domain: owned namespaces
+
+A module in a shared domain (`DDD\Domain\AI`, `DDD\Domain\Common`) keeps its classes below `<Layer>\<Feature>\` and its
+config below `config/app/<Domain>/<Feature>/`, and returns those prefixes from `DDDModule::getOwnedNamespaces()`. Every
+module suite and host suite runs one subclass of `DDD\Testing\Modules\ModuleNamespacesTestCase` (only
+`getProjectDirectory()`); it fails on a class name or a `config/app/` file shipped by two installed packages and on a
+class outside the declared prefixes. A shared config file kept during a move goes into `getAcceptedSharedConfigFiles()`,
+a list that only shrinks.
+
 ### npm-only packages of the ecosystem
 
 `@mgamadeus/ddd-web` (contract client, SDK generator) and `@mgamadeus/ddd-admin-ui` (the admin building blocks:

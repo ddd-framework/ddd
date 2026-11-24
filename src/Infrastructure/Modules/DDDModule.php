@@ -89,6 +89,22 @@ abstract class DDDModule
     }
 
     /**
+     * The namespace prefixes this module owns. Several packages may share a domain (`DDD\Domain\AI`,
+     * `DDD\Domain\Common`); a package that declares its prefixes ships no class outside them, and no class name or
+     * config file is shipped by two packages. Checked by {@see \DDD\Testing\Modules\ModuleNamespacesTestCase}, which
+     * every module suite and host suite runs. A new package in a shared domain puts every class below
+     * `<Layer>\<Feature>\` and its config below `config/app/<Domain>/<Feature>/`, so it owns a few prefixes.
+     * e.g. ['DDD\Domain\AI\Entities\Sandboxes\', 'DDD\Domain\AI\Services\Sandboxes\', 'DDD\Modules\AgentSandbox\']
+     * Empty (the default) = not declared: only the duplicate checks apply.
+     *
+     * @return string[]
+     */
+    public static function getOwnedNamespaces(): array
+    {
+        return [];
+    }
+
+    /**
      * Controller directories available for routing.
      * Keys are route prefixes, values are absolute directory paths.
      * e.g. ['/api/batch' => __DIR__ . '/Presentation/Api/Batch']

@@ -124,7 +124,11 @@ class Config
         }
         $currentTreeElement = &self::$configTree;
         foreach ($relativeSearchPath as $searchPathElement) {
-            $currentTreeElement[$searchPathElement] = [];
+            // keep the files already read below this path (resetting it dropped every sibling, e.g. reading one
+            // AI.Skills.* file dropped every other AI.* entry of the process); only a non-array value is replaced
+            if (!isset($currentTreeElement[$searchPathElement]) || !is_array($currentTreeElement[$searchPathElement])) {
+                $currentTreeElement[$searchPathElement] = [];
+            }
             $currentTreeElement = &$currentTreeElement[$searchPathElement];
         }
         $fileExtension = strtolower(pathinfo($configFile, PATHINFO_EXTENSION));

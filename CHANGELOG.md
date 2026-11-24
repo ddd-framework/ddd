@@ -2,6 +2,18 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.41.0
+
+- Owned namespaces: `DDDModule::getOwnedNamespaces()` (default: none) and the check
+  `DDD\Testing\Modules\ModuleNamespacesTestCase` (with `ModuleNamespaceChecker`, `ModuleNamespacePackage`,
+  `ModuleNamespaceViolation(s)`): no class name and no `config/app/` file shipped by two installed packages, and no class
+  of a package outside the namespaces it declares. Hosts and modules add one test class:
+  `class ModuleNamespacesTest extends \DDD\Testing\Modules\ModuleNamespacesTestCase { protected function
+  getProjectDirectory(): string { return dirname(__DIR__); } }`. It reads source files only (no kernel).
+- Config: reading a config file no longer drops the files already read below the same path from the process cache
+  (`searchInConfig()` reset every path element; reading one `AI.Skills.*` file dropped every other `AI.*` entry, which
+  was then read from disk again).
+
 ## 3.40.2
 
 - Same-path overrides: an application class at the same path under `App\` replaces a framework or module class only
