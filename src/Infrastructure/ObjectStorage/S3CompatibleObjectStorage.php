@@ -33,7 +33,7 @@ use Throwable;
  * (`1.1` / `2.0`, its `http_version`) apply to every operation; a retry after a transport error uses a new connection.
  * Unset, async-aws builds its own client: default socket timeout (usually 60 s), 3 retries.
  */
-class S3CompatibleObjectStorage implements StreamingObjectStorage
+class S3CompatibleObjectStorage implements StreamingObjectStorage, ParallelReadableObjectStorage
 {
     public const string REQUIRED_PACKAGE = 'async-aws/s3';
     /** async-aws's own retry count, kept when a store sets only a timeout */
@@ -98,6 +98,41 @@ class S3CompatibleObjectStorage implements StreamingObjectStorage
         } catch (Throwable $throwable) {
             throw $this->createStorageException('get', $key, $throwable);
         }
+    }
+
+    /**
+     * Every GET is sent before the first answer is read: async-aws starts a request when it is created and the HTTP
+     * client keeps all of them in flight, so N objects cost about the time of the slowest one.
+     */
+    public function getObjectContents(array $keys): array
+    {
+        $getObjectResultsByKey = [];
+        foreach (array_values(array_unique($keys)) as $key) {
+            try {
+                $getObjectResultsByKey[$key] = $this->getS3Client()->getObject([
+                    'Bucket' => $this->objectStorageSettings->bucket,
+                    'Key' => $this->getStorageKey($key),
+                ]);
+            } catch (Throwable $throwable) {
+                throw $this->createStorageException('get', $key, $throwable);
+            }
+        }
+        $contentsByKey = [];
+        foreach ($getObjectResultsByKey as $key => $getObjectResult) {
+            try {
+                $contentsByKey[$key] = $getObjectResult->getBody()->getContentAsString();
+            } catch (NoSuchKeyException) {
+                $contentsByKey[$key] = null;
+            } catch (Throwable $throwable) {
+                // a 404 without the NoSuchKey code (some S3-compatible services) is a missing object too, as in readObjectChunks()
+                if ($this->getHttpStatusCode($throwable) === self::HTTP_STATUS_NOT_FOUND) {
+                    $contentsByKey[$key] = null;
+                    continue;
+                }
+                throw $this->createStorageException('get', (string)$key, $throwable);
+            }
+        }
+        return $contentsByKey;
     }
 
     public function deleteObject(string $key): void

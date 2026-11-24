@@ -15,7 +15,7 @@ use RecursiveIteratorIterator;
  * Presigned requests are `file://` URLs a client of the same machine reads or writes directly; create-only conditions
  * are checked by the driver's own methods only (a client writing to a `file://` URL is not stopped).
  */
-class FilesystemObjectStorage implements StreamingObjectStorage
+class FilesystemObjectStorage implements StreamingObjectStorage, ParallelReadableObjectStorage
 {
     /** Directory below the store's root (and prefix) that holds the parts of open multipart uploads */
     public const string MULTIPART_DIRECTORY = '.multipart';
@@ -65,6 +65,16 @@ class FilesystemObjectStorage implements StreamingObjectStorage
             throw new InternalErrorException('Object storage: cannot read ' . $filePath);
         }
         return $content;
+    }
+
+    /** One file after another (a local disk gains nothing from parallel reads). */
+    public function getObjectContents(array $keys): array
+    {
+        $contentsByKey = [];
+        foreach (array_values(array_unique($keys)) as $key) {
+            $contentsByKey[$key] = $this->getObjectContent($key);
+        }
+        return $contentsByKey;
     }
 
     public function deleteObject(string $key): void

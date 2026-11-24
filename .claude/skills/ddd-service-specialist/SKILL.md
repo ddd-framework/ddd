@@ -762,6 +762,13 @@ $cache = Cache::instance();
 // TTL constants: CACHE_TTL_ONE_HOUR (3600), CACHE_TTL_ONE_DAY (86400), CACHE_TTL_TEN_MINUTES (600)
 ```
 
+**Batches** (every backend, one round trip where the backend has one): `getMultiple(string[] $keys): array` (key =>
+value of the hits, the same shape for one key and many; one MGET / pipeline on Redis and Valkey),
+`setMultiple(array $valuesByKey, int $ttlSeconds)` (deferred saves committed together: one pipeline),
+`extendTtlOfKeys(string[] $keys, int $ttlSeconds)` (a new TTL from now for existing keys, a missing key stays missing:
+one EXPIRE pipeline on phpredis, one EXPIRE per key on Predis / cluster / Relay, read and write again on APCu and the
+other backends).
+
 **Atomic counters and locks** (own keyspaces, not visible to `get()` / `set()`; Apc / Redis / RedisSentinel and a Chain
 with such a tier — every other backend throws `BadMethodCallException`):
 
@@ -854,6 +861,9 @@ $downloadUrl = $exportsObjectStorage->createTemporaryUrl("reports/{$report->id}.
   `If-None-Match` on PUT sets `conditionalWrites: false`
   (`OBJECT_STORAGE_<NAME>_CONDITIONAL_WRITES`); `supportsConditionalWrites()` tells a caller to upload to a staging
   key and copy on the server instead. The filesystem driver answers `file://` requests (development only).
+- **Several objects at once (`ParallelReadableObjectStorage`, both Core drivers; check `instanceof`):**
+  `getObjectContents(string[] $keys)` (key => content, null for a missing object): the s3 driver sends every GET before
+  it reads the first answer (all in flight together), the filesystem driver reads one after another.
 - **Streaming (`StreamingObjectStorage`, both Core drivers; check `instanceof`):** `readObjectChunks($key,
   ?ObjectStorageByteRange, $chunkBytes = 1 MiB): ?iterable` (null = missing; a range is a ranged GET, cut at the end;
   beyond the end = no chunks), `putObjectFromStream($key, $stream, $contentLength, ?$contentType)`,

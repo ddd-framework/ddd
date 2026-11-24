@@ -2,6 +2,16 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.44.0
+
+- `Cache` batches: `getMultiple(string[] $keys)` (key => value of the hits), `setMultiple(array $valuesByKey,
+  int $ttlSeconds)` (one pipeline), `extendTtlOfKeys(string[] $keys, int $ttlSeconds)` (a new TTL for existing keys;
+  one EXPIRE pipeline on phpredis, per key on Predis / cluster, read and write again elsewhere). Works on Redis and
+  Valkey; an application's own `Cache` subclass inherits the generic versions.
+- New `ParallelReadableObjectStorage::getObjectContents(string[] $keys)` (both Core drivers): several objects at once,
+  null for a missing one; the s3 driver keeps every GET in flight together. A driver of an application that does not
+  implement it keeps working; callers check `instanceof`.
+
 ## 3.43.0
 
 - New `StreamingObjectStorage` (extends `ObjectStorage`; both Core drivers implement it): `readObjectChunks()` with an

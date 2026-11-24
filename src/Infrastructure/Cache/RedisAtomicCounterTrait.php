@@ -49,6 +49,43 @@ trait RedisAtomicCounterTrait
         return 0
         LUA;
 
+    /**
+     * One EXPIRE per existing key, in one pipeline on phpredis `\Redis`, one after another on the other clients
+     * (a cluster, Relay, Predis). The key is the adapter's own id of the key (namespace and version included), read
+     * through the adapter; where that is not possible the default of {@see Cache::extendTtlOfKeys()} runs.
+     *
+     * @param string[] $keys
+     */
+    public function extendTtlOfKeys(array $keys, int $ttlSeconds): void
+    {
+        if ($keys === []) {
+            return;
+        }
+        $cacheAdapter = $this->getCacheAdapter();
+        try {
+            $getIdMethod = new \ReflectionMethod($cacheAdapter, 'getId');
+            $adapterIds = array_map(
+                static fn (string $key): string => (string)$getIdMethod->invoke($cacheAdapter, Cache::convertKeyToValidCacheKey($key)),
+                array_values($keys)
+            );
+        } catch (\ReflectionException) {
+            parent::extendTtlOfKeys($keys, $ttlSeconds);
+            return;
+        }
+        $nativeRedisConnection = $this->nativeRedisConnection();
+        if ($nativeRedisConnection instanceof Redis) {
+            $pipeline = $nativeRedisConnection->multi(Redis::PIPELINE);
+            foreach ($adapterIds as $adapterId) {
+                $pipeline->expire($adapterId, $ttlSeconds);
+            }
+            $pipeline->exec();
+            return;
+        }
+        foreach ($adapterIds as $adapterId) {
+            $nativeRedisConnection->expire($adapterId, $ttlSeconds);
+        }
+    }
+
     /** The native Redis client (captured by the using class in getCacheAdapter()), used for atomic commands. */
     protected Redis|RedisArray|RedisCluster|Relay|ClientInterface $nativeRedisConnection;
 

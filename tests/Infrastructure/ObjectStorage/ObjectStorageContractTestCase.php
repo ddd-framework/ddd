@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace DDD\Tests\Infrastructure\ObjectStorage;
 
 use DDD\Infrastructure\ObjectStorage\ObjectStorage;
+use DDD\Infrastructure\ObjectStorage\ParallelReadableObjectStorage;
 use DDD\Infrastructure\ObjectStorage\ObjectStoragePresignedRequest;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\HttpClient\HttpClient;
@@ -43,6 +44,20 @@ abstract class ObjectStorageContractTestCase extends TestCase
         $objectStorage->deleteObject('sourcemaps/r1/_next/static/chunks/a.js.map');
         $this->assertFalse($objectStorage->objectExists('sourcemaps/r1/_next/static/chunks/a.js.map'));
         $this->assertSame(['sourcemaps/r1/_next/static/chunks/b.js.map'], $objectStorage->listObjects('sourcemaps/r1/')->getKeys());
+    }
+
+    public function testSeveralObjectsAreReadAtOnceAndAMissingOneIsNull(): void
+    {
+        $objectStorage = $this->createObjectStorage();
+        $this->assertInstanceOf(ParallelReadableObjectStorage::class, $objectStorage);
+        $objectStorage->putObject('images/1/a', 'first');
+        $objectStorage->putObject('images/1/b', 'second');
+
+        $this->assertSame(
+            ['images/1/a' => 'first', 'images/1/missing' => null, 'images/1/b' => 'second'],
+            $objectStorage->getObjectContents(['images/1/a', 'images/1/missing', 'images/1/b'])
+        );
+        $this->assertSame([], $objectStorage->getObjectContents([]));
     }
 
     public function testACreateOnlyPutKeepsTheFirstObject(): void

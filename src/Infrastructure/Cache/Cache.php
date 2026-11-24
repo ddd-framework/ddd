@@ -225,6 +225,74 @@ abstract class Cache
     }
 
     /**
+     * The values of several keys in one read of the backend (one MGET or pipeline on Redis and Valkey, the
+     * adapter's own batch on the other caches): key => value for every hit, the misses left out. Unlike
+     * {@see get()} the answer has the same shape for one key and for many.
+     *
+     * @param string[] $keys
+     * @return array<string, mixed>
+     * @throws InvalidArgumentException
+     */
+    public function getMultiple(array $keys): array
+    {
+        if ($keys === []) {
+            return [];
+        }
+        $validKeysByKey = [];
+        foreach ($keys as $key) {
+            $validKeysByKey[$key] = self::convertKeyToValidCacheKey($key);
+        }
+        $keysByValidKey = array_flip($validKeysByKey);
+        $valuesByKey = [];
+        /** @var CacheItem $cacheItem */
+        foreach ($this->getCacheAdapter()->getItems(array_values($validKeysByKey)) as $cacheItem) {
+            if ($cacheItem->isHit() && isset($keysByValidKey[$cacheItem->getKey()])) {
+                $valuesByKey[$keysByValidKey[$cacheItem->getKey()]] = $cacheItem->get();
+            }
+        }
+        return $valuesByKey;
+    }
+
+    /**
+     * Writes several values with one TTL in one write of the backend (deferred saves committed together: one
+     * pipeline on Redis and Valkey).
+     *
+     * @param array<string, mixed> $valuesByKey
+     * @param int $ttlSeconds
+     * @return void
+     * @throws InvalidArgumentException
+     */
+    public function setMultiple(array $valuesByKey, int $ttlSeconds): void
+    {
+        if ($valuesByKey === []) {
+            return;
+        }
+        $cacheAdapter = $this->getCacheAdapter();
+        foreach ($valuesByKey as $key => $value) {
+            $cacheItem = $cacheAdapter->getItem(self::convertKeyToValidCacheKey((string)$key));
+            $cacheItem->set($value);
+            $cacheItem->expiresAfter($ttlSeconds);
+            $cacheAdapter->saveDeferred($cacheItem);
+        }
+        $cacheAdapter->commit();
+    }
+
+    /**
+     * Gives existing keys a new TTL from now (a missing key stays missing). The default reads the hits and writes them
+     * again with the TTL (two batched round trips); the Redis caches send one EXPIRE per key in one pipeline without
+     * moving the values.
+     *
+     * @param string[] $keys
+     * @param int $ttlSeconds
+     * @return void
+     * @throws InvalidArgumentException
+     */
+    public function extendTtlOfKeys(array $keys, int $ttlSeconds): void
+    {
+        $this->setMultiple($this->getMultiple($keys), $ttlSeconds);
+    }
+
+    /**
      * Commits values set with $deferred true all in once
      * @return void
      */
