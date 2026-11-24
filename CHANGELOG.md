@@ -2,6 +2,16 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.42.0
+
+- New Composer bin `ddd-server-messages`: a PHP package lists the server messages its endpoints answer with in
+  `i18n/server-messages.json` (`build`, CI `build --check`: outdated file or a hint under 40 characters fails), an
+  application merges those of every installed package (`collect --vendor-dir vendor`). README › "Server messages of
+  packages (text export)".
+- Applications with a web text export: add the collected keys to the export (like the npm packages' `i18n-keys.json`)
+  and never prune a key a package lists — a message that moved into a package is no longer found by a scan of the
+  application's own PHP, but its endpoint still sends it.
+
 ## 3.41.2
 
 - Config: a config file and a folder of the same name side by side (`Common/Translations.php` and

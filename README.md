@@ -476,6 +476,34 @@ For an app whose Composer root is `app/` and whose frontend is `web/`:
 4. CI or session start: `php app/vendor/bin/ddd-link-skills --check` (or `pnpm --dir web exec ddd-web link-skills
    --check`).
 
+### Server messages of packages (text export)
+
+A web frontend translates a server message (the `error` of a 4xx answer) by its English text, and an application's
+text export finds those texts in its own PHP. A message thrown by an installed package is invisible to that scan, and
+an export that prunes keys it did not find deletes a text an endpoint still sends. Each PHP package therefore lists
+its client-facing messages in `i18n/server-messages.json`, built by the Composer bin `ddd-server-messages` (plain PHP,
+no kernel):
+
+```bash
+vendor/bin/ddd-server-messages build            # in a package: keys from src/, hints kept (written by hand)
+vendor/bin/ddd-server-messages build --check    # CI: exit 1 when outdated or a hint has < 40 characters
+vendor/bin/ddd-server-messages collect --vendor-dir vendor --out var/server-messages.json   # in an application
+```
+
+- **What is listed:** `new <BadRequest|NotFound|Forbidden|Conflict|Unauthorized|…>Exception('literal'`,
+  `…Exception::fromTemplate('template'`, message constants (`…MESSAGE…`, `ERROR_…` but not `ERROR_CODE…` or push
+  texts) and `return 'literal';` in a `…Reason()` method; only sentences (no codes, no single words).
+  `InternalErrorException` and PHP's own exceptions stay English.
+- **Where:** `src/Domain`, `src/Presentation/Api`, `src/Presentation/Base`, `src/Symfony/EventListeners`,
+  `src/Symfony/Security`; never MCP tools, message handlers, Argus repos or evaluation code (their texts reach a model
+  or a developer). A manifest narrows it with `excludedFiles` (path patterns), widens or replaces it with
+  `scanDirectories`; a file containing `@server-messages-ignore-file` is skipped.
+- **Format:** `{ package, keys: [{ key, text, hint, origins }] }`, key = the English text, the same entry form as the
+  npm packages' `i18n-keys.json`. `collect` merges every `vendor/mgamadeus/*/i18n/server-messages.json` into
+  `{ packages, keys: [{ key, text, hint, origins, packages }] }` (a key listed twice keeps the longest hint).
+- **Application export:** add the collected keys like the UI texts of the npm manifests, and never prune a key a
+  package lists.
+
 ### Untrusted Input
 
 Bytes and strings the server did not produce are never executed or interpreted as code. Core ships the helpers
