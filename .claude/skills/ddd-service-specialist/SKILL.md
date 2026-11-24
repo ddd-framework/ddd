@@ -748,6 +748,10 @@ $apiKey = Config::getEnv('API_KEY');                  // Env var with type coerc
 $seedData = Config::get('Catalog.Allergens');         // Load seed data arrays from config
 ```
 
+A file and a folder of the same name (`Common/Translations.php` beside `Common/Translations/AppTexts.php`) are both
+read: a key the file defines wins, any other key is looked up in the folder (same root, then lower roots). An
+application file still replaces the module file at the same path whole.
+
 ### Caching
 
 ```php

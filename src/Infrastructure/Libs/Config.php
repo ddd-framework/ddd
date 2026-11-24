@@ -23,6 +23,19 @@ class Config
     protected static array $moduleRootDirectories = [];
 
     protected static array $configTree;
+
+    /**
+     * Root rank (index in the search order, 0 = highest) of each config file read, by its dot path.
+     * @var int[]
+     */
+    protected static array $configNodeRootRanksByPath = [];
+
+    /**
+     * Dot paths of folders known to have no file of their own (in no root).
+     * @var bool[]
+     */
+    protected static array $configNodePathsWithoutOwnFile = [];
+
     protected static ?array $env = null;
 
     /**
@@ -51,6 +64,9 @@ class Config
 
         // Add the new root directory at the beginning of its tier
         array_unshift(self::$$target, $configRootDirectory);
+        // the root ranks of the files read so far changed
+        self::$configNodeRootRanksByPath = [];
+        self::$configNodePathsWithoutOwnFile = [];
     }
 
     /**
@@ -91,8 +107,20 @@ class Config
     }
 
     /**
+     * Reads a config value by its dot path (`Area.file.key…`).
+     *
+     * Resolution, per root in priority order (application roots, then module roots):
+     * - a path segment may name a file (`Translations.php`, `.md`, `.txt`) and a folder (`Translations/`) side by
+     *   side, in one root or across roots. A key the file defines wins; a key it does not define is looked up in the
+     *   folder of the same name, in this root and in every lower root. The file therefore never hides the folder.
+     * - a file replaces the file at the same path in a lower root whole (an application file is an override of the
+     *   module's file, not a patch of it).
+     * - reading the node itself (`Common.Translations`) answers the file's value, plus the entries read from the
+     *   folder so far; for a key both define, the one from the higher root wins, and within one root the file wins.
+     *   Folders are never listed, so an entry of the folder appears only once something read it.
+     *
      * @param string $searchString
-     * @param bool $prioritizeDirectorySearch
+     * @param bool $prioritizeDirectorySearch true: within one root the folder is looked at before the file
      * @return mixed
      */
     public static function get(string $searchString, bool $prioritizeDirectorySearch = false): mixed
@@ -111,127 +139,195 @@ class Config
         string $searchString,
         bool $prioritizeDirectorySearch
     ): mixed {
-        if ($searchResult = $this->searchInConfigTree($searchString)) {
-            return $searchResult;
-        }
-        $result = $this->searchForFileInRootDirectories($searchString, $prioritizeDirectorySearch);
-        if (!$result) {
+        if ($searchString === '') {
             return null;
         }
-        [$configFile, $relativeSearchPath] = $result;
-        if (!isset(self::$configTree)) {
-            self::$configTree = [];
+        $treeValue = $this->searchInConfigTree($searchString);
+        $isNodeAssembledFromDeeperFilesOnly = $treeValue && $this->isConfigNodeAssembledFromDeeperFilesOnly($searchString);
+        if ($treeValue && !$isNodeAssembledFromDeeperFilesOnly) {
+            return $treeValue;
         }
-        $currentTreeElement = &self::$configTree;
-        foreach ($relativeSearchPath as $searchPathElement) {
-            // keep the files already read below this path (resetting it dropped every sibling, e.g. reading one
-            // AI.Skills.* file dropped every other AI.* entry of the process); only a non-array value is replaced
-            if (!isset($currentTreeElement[$searchPathElement]) || !is_array($currentTreeElement[$searchPathElement])) {
-                $currentTreeElement[$searchPathElement] = [];
+        $searchKeys = self::explodeSearchString($searchString);
+        $nodePathsAnsweredByAFile = [];
+        foreach (self::getRootDirectories() as $rootRank => $configRoot) {
+            if ($this->resolveInConfigDirectory(
+                $configRoot,
+                $rootRank,
+                $searchKeys,
+                [],
+                $prioritizeDirectorySearch,
+                $nodePathsAnsweredByAFile
+            )) {
+                return $this->searchInConfigTree($searchString);
             }
-            $currentTreeElement = &$currentTreeElement[$searchPathElement];
         }
-        $fileExtension = strtolower(pathinfo($configFile, PATHINFO_EXTENSION));
-        if ($fileExtension === 'md' || $fileExtension === 'txt') {
-            $currentTreeElement = file_get_contents($configFile);
-        } else {
-            $currentTreeElement = require $configFile;
+        if ($isNodeAssembledFromDeeperFilesOnly) {
+            // a folder without a file of its own: what was read below it is all there is
+            self::$configNodePathsWithoutOwnFile[$searchString] = true;
         }
         return $this->searchInConfigTree($searchString);
     }
 
     /**
-     * @param string $searchString
-     * @param bool $prioritizeDirectorySearch
-     * @return array|null
+     * Walks one root along the search keys; loads each file met on the way (file before folder, unless the folder is
+     * prioritized) until one of them answers the search.
+     *
+     * @param string[] $searchKeys the keys still to walk
+     * @param string[] $nodeKeys the keys walked so far (the path of $configDirectory below the root)
+     * @param bool[] $nodePathsAnsweredByAFile dot paths a file of a higher root already stands for (by reference:
+     *                                         filled across the roots of one search)
      */
-    protected function searchForFileInRootDirectories(
-        string $searchString,
-        bool $prioritizeDirectorySearch
-    ): array|null {
-        foreach (self::getRootDirectories() as $configRoot) {
-            $result = $this->searchForFileInRootDirectory($configRoot, $searchString, $prioritizeDirectorySearch);
-            if (!$result) {
-                continue;
-            }
-            [$filePath, $relativeSearchPath] = $result;
-            return [$filePath, $relativeSearchPath];
-        }
-
-        return null;
-    }
-
-    /**
-     * @param string $configPath
-     * @param string $searchString
-     * @param bool $prioritizeDirectorySearch
-     * @return string|null
-     */
-    protected function searchForFileInRootDirectory(
-        string $configPath,
-        string $searchString,
+    protected function resolveInConfigDirectory(
+        string $configDirectory,
+        int $rootRank,
+        array $searchKeys,
+        array $nodeKeys,
         bool $prioritizeDirectorySearch,
-        array $relativeSearchPath = []
-    ): array|null {
-        if ($searchString === '') {
-            return null;
+        array &$nodePathsAnsweredByAFile
+    ): bool {
+        if (!$searchKeys) {
+            return false;
         }
-
-        $searchKeys = explode('.', $searchString);
-        if (!$searchKeys || count($searchKeys) === 0) {
-            return null;
-        }
-
         $currentKey = array_shift($searchKeys);
-        $relativeSearchPath[] = $currentKey;
-
-        $dirItems = scandir($configPath);
-
-        if (!$dirItems || count($dirItems) < 1) {
-            return null;
+        $nodeKeys[] = $currentKey;
+        $nodePath = implode('.', $nodeKeys);
+        $directoryItems = scandir($configDirectory);
+        if (!$directoryItems) {
+            return false;
         }
-
-        $searchString = implode('.', $searchKeys);
-        $lowercaseDirItems = array_map('strtolower', $dirItems);
+        $lowercaseDirectoryItems = array_map('strtolower', $directoryItems);
         $lowercaseCurrentKey = strtolower($currentKey);
 
-        // There are cases where inside a folder we may encounter a file and a folder with the same name
-        // In those cases we must prioritize one over the other
-        // Search for files with supported extensions: .php, .md, .txt (in priority order)
-        $supportedExtensions = ['php', 'md', 'txt'];
-        $filePath = null;
-        foreach ($supportedExtensions as $extension) {
-            $fileKey = array_search($lowercaseCurrentKey . '.' . $extension, $lowercaseDirItems, true);
-            if ($fileKey !== false) {
-                $candidatePath = trim($configPath . DIRECTORY_SEPARATOR . $dirItems[$fileKey]);
+        $configFilePath = null;
+        foreach (['php', 'md', 'txt'] as $extension) {
+            $itemIndex = array_search($lowercaseCurrentKey . '.' . $extension, $lowercaseDirectoryItems, true);
+            if ($itemIndex !== false) {
+                $candidatePath = $configDirectory . DIRECTORY_SEPARATOR . $directoryItems[$itemIndex];
                 if (is_file($candidatePath)) {
-                    $filePath = $candidatePath;
+                    $configFilePath = $candidatePath;
                     break;
                 }
             }
         }
-
-        // If file found and not prioritizing directory search, return the file
-        if (!$prioritizeDirectorySearch && $filePath) {
-            return [$filePath, $relativeSearchPath];
+        $subdirectoryPath = null;
+        $itemIndex = array_search($lowercaseCurrentKey, $lowercaseDirectoryItems, true);
+        if ($itemIndex !== false) {
+            $candidatePath = $configDirectory . DIRECTORY_SEPARATOR . $directoryItems[$itemIndex];
+            if (is_dir($candidatePath)) {
+                $subdirectoryPath = $candidatePath;
+            }
+        }
+        // a file of a higher root at the same path replaces this one whole
+        if ($configFilePath !== null && isset($nodePathsAnsweredByAFile[$nodePath])) {
+            $configFilePath = null;
         }
 
-        $dirKey = array_search($lowercaseCurrentKey, $lowercaseDirItems, true);
-        $dirItemPath = $dirKey ? trim($configPath . DIRECTORY_SEPARATOR . $dirItems[$dirKey]) : null;
-        if ($dirItemPath && is_dir($dirItemPath)) {
-            return $this->searchForFileInRootDirectory(
-                $dirItemPath,
-                $searchString,
+        if ($prioritizeDirectorySearch && $subdirectoryPath !== null && $this->resolveInConfigDirectory(
+            $subdirectoryPath,
+            $rootRank,
+            $searchKeys,
+            $nodeKeys,
+            $prioritizeDirectorySearch,
+            $nodePathsAnsweredByAFile
+        )) {
+            return true;
+        }
+        if ($configFilePath !== null) {
+            $nodePathsAnsweredByAFile[$nodePath] = true;
+            $this->loadConfigFileIntoTree($configFilePath, $nodeKeys, $rootRank);
+            $searchedValue = $this->searchInConfigTree($nodePath . ($searchKeys ? '.' . implode('.', $searchKeys) : ''));
+            if ($searchedValue !== null) {
+                return true;
+            }
+        }
+        if (!$prioritizeDirectorySearch && $subdirectoryPath !== null) {
+            return $this->resolveInConfigDirectory(
+                $subdirectoryPath,
+                $rootRank,
+                $searchKeys,
+                $nodeKeys,
                 $prioritizeDirectorySearch,
-                $relativeSearchPath
+                $nodePathsAnsweredByAFile
             );
         }
+        return false;
+    }
 
-        if ($filePath) {
-            return [$filePath, $relativeSearchPath];
+    /**
+     * Puts a config file's value into the tree at its path. An array value is merged with the entries already read
+     * below that path (from the folder of the same name): for a key both hold, the entry of the higher root wins, and
+     * within one root the file wins.
+     *
+     * @param string[] $nodeKeys
+     */
+    protected function loadConfigFileIntoTree(string $configFilePath, array $nodeKeys, int $rootRank): void
+    {
+        $nodePath = implode('.', $nodeKeys);
+        if (!isset(self::$configTree)) {
+            self::$configTree = [];
         }
+        $currentTreeElement = &self::$configTree;
+        foreach ($nodeKeys as $nodeKey) {
+            // keep the files already read below this path (resetting it dropped every sibling, e.g. reading one
+            // AI.Skills.* file dropped every other AI.* entry of the process); only a non-array value is replaced
+            if (!isset($currentTreeElement[$nodeKey]) || !is_array($currentTreeElement[$nodeKey])) {
+                $currentTreeElement[$nodeKey] = [];
+            }
+            $currentTreeElement = &$currentTreeElement[$nodeKey];
+        }
+        // already in the tree from this file (the tree may have been replaced since, e.g. by a test)
+        if (isset(self::$configNodeRootRanksByPath[$nodePath]) && self::$configNodeRootRanksByPath[$nodePath] === $rootRank
+            && $currentTreeElement !== []) {
+            return;
+        }
+        $fileExtension = strtolower(pathinfo($configFilePath, PATHINFO_EXTENSION));
+        $fileValue = ($fileExtension === 'md' || $fileExtension === 'txt')
+            ? file_get_contents($configFilePath)
+            : require $configFilePath;
+        if (is_array($fileValue) && is_array($currentTreeElement) && $currentTreeElement !== []) {
+            foreach ($currentTreeElement as $entryKey => $entryValue) {
+                if (!array_key_exists($entryKey, $fileValue)
+                    || $this->findHighestRootRankBelowConfigNode($nodePath . '.' . $entryKey) < $rootRank) {
+                    $fileValue[$entryKey] = $entryValue;
+                }
+            }
+        }
+        $currentTreeElement = $fileValue;
+        self::$configNodeRootRanksByPath[$nodePath] = $rootRank;
+        unset(self::$configNodePathsWithoutOwnFile[$nodePath]);
+    }
 
-        return null;
+    /** The best (lowest) root rank of the files read at or below a node; PHP_INT_MAX when none */
+    protected function findHighestRootRankBelowConfigNode(string $nodePath): int
+    {
+        $highestRootRank = PHP_INT_MAX;
+        foreach (self::$configNodeRootRanksByPath as $loadedNodePath => $rootRank) {
+            if (($loadedNodePath === $nodePath || str_starts_with($loadedNodePath, $nodePath . '.')) && $rootRank < $highestRootRank) {
+                $highestRootRank = $rootRank;
+            }
+        }
+        return $highestRootRank;
+    }
+
+    /**
+     * True when the tree holds the node only because files below it were read (its folder), while a file of the node
+     * itself or of a node above it was never read: the cached value may lack the node's own file.
+     */
+    protected function isConfigNodeAssembledFromDeeperFilesOnly(string $nodePath): bool
+    {
+        if (isset(self::$configNodePathsWithoutOwnFile[$nodePath])) {
+            return false;
+        }
+        $hasDeeperFile = false;
+        foreach (self::$configNodeRootRanksByPath as $loadedNodePath => $rootRank) {
+            if ($loadedNodePath === $nodePath || str_starts_with($nodePath, $loadedNodePath . '.')) {
+                return false;
+            }
+            if (str_starts_with($loadedNodePath, $nodePath . '.')) {
+                $hasDeeperFile = true;
+            }
+        }
+        return $hasDeeperFile;
     }
 
     /**

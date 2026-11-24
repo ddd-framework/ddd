@@ -2,6 +2,23 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.41.2
+
+- Config: a config file and a folder of the same name side by side (`Common/Translations.php` and
+  `Common/Translations/AppTexts.php`, in one root or across application and module roots) are both found. A key the
+  file defines wins; a key it does not define is looked up in the folder, in the same root and in every lower root.
+  Before, the file hid the folder: `Config::get('Common.Translations.AppTexts')` answered null while the application
+  had its own `Common/Translations.php`.
+- Unchanged: an application file still replaces the module file at the same path whole (a key the application file
+  leaves out is not taken from the module file).
+- Reading the node itself (`Common.Translations`) answers the file plus the folder entries read so far. For a key
+  both hold, the higher root wins, and within one root the file wins. Before, a node read after one of its folder files
+  could answer only that folder entry. Folders are still never listed.
+- Applications: a workaround that reads a folder's file directly (e.g. `require` of
+  `config/app/Common/Translations/AppTexts.php`) can go back to `Config::get()`.
+- Removed the protected helpers `searchForFileInRootDirectories()` / `searchForFileInRootDirectory()` of `Config`
+  (replaced by `resolveInConfigDirectory()`).
+
 ## 3.41.1
 
 - Console: a module command with `aliases` in its `AsCommand` attribute is listed once (name plus aliases). The module
