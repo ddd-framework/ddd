@@ -36,6 +36,9 @@ class RequestDto
     /** Request header naming the language of the body's plain Translatable values (`en`, `en-US`) */
     public const string CONTENT_LANGUAGE_HEADER = 'Content-Language';
 
+    /** Body types that are raw bytes and stay unread by {@see setPropertiesFromRequest()} */
+    public const array RAW_BODY_CONTENT_TYPES = ['application/octet-stream'];
+
     /** @var string If set to true, no EntityRegistry Argus Caching will be used */
     #[Parameter(in: Parameter::QUERY, required: false)]
     #[SharedRequestParameter]
@@ -77,6 +80,15 @@ class RequestDto
      * @throws InternalErrorException
      * @throws ReflectionException
      */
+    /**
+     * True for a request body that is raw bytes, never a JSON document (`application/octet-stream`): such a body is
+     * left unread, so a controller can stream it (`$request->getContent(true)`) without a copy in memory.
+     */
+    public static function isRawBodyContentType(string $contentType): bool
+    {
+        return in_array(strtolower(trim(explode(';', $contentType)[0])), static::RAW_BODY_CONTENT_TYPES, true);
+    }
+
     public function setPropertiesFromRequest(Request $request): void
     {
         $reflection = ReflectionClass::instance(static::class);
@@ -97,10 +109,15 @@ class RequestDto
         // entirely unaffected — they only ever see Content-Type: application/json and take the existing branch.
         //
         // Convention: clients sending multipart MUST place the JSON envelope under form field name "body".
+        //
+        // A raw binary body (`application/octet-stream`: an upload streamed into an object store) is not read here:
+        // reading it would hold the whole body in memory, the controller streams it with $request->getContent(true).
         $contentType = (string) $request->headers->get('Content-Type');
         if (str_starts_with($contentType, 'multipart/')) {
             $jsonEnvelope = $request->request->get('body');
             $bodyDecoded = $jsonEnvelope ? json_decode($jsonEnvelope) : null;
+        } elseif (static::isRawBodyContentType($contentType)) {
+            $bodyDecoded = null;
         } else {
             $body = $request->getContent();
             $bodyDecoded = $body ? json_decode($body) : null;

@@ -854,6 +854,16 @@ $downloadUrl = $exportsObjectStorage->createTemporaryUrl("reports/{$report->id}.
   `If-None-Match` on PUT sets `conditionalWrites: false`
   (`OBJECT_STORAGE_<NAME>_CONDITIONAL_WRITES`); `supportsConditionalWrites()` tells a caller to upload to a staging
   key and copy on the server instead. The filesystem driver answers `file://` requests (development only).
+- **Streaming (`StreamingObjectStorage`, both Core drivers; check `instanceof`):** `readObjectChunks($key,
+  ?ObjectStorageByteRange, $chunkBytes = 1 MiB): ?iterable` (null = missing; a range is a ranged GET, cut at the end;
+  beyond the end = no chunks), `putObjectFromStream($key, $stream, $contentLength, ?$contentType)`,
+  `uploadPartFromStream($key, $uploadId, $partNumber, $stream, $contentLength, ?$contentMd5): ObjectStorageUploadedPart`
+  (the stream's whole content from its start is the body; a seekable resource, e.g. `php://input`, `php://temp`; the
+  s3 driver spools it once to `php://temp` — 2 MB in memory, the rest on disk — to sign and retry),
+  `listMultipartUploads($keyPrefix, $limit): ObjectStorageMultipartUploads` (`key`, `uploadId`, `initiatedAt`; abort
+  with `abortMultipartUpload()`). With these an application passes every byte through its backend: no presigned URL
+  for clients, no CORS rule, no bucket lifecycle rule. Serving: `ObjectStorageStreamResponseDto`
+  (`ddd-endpoint-specialist` › "Streamed downloads and uploads").
 - **Retries:** the s3 adapter does not retry itself — async-aws does: 3 retries with 1 s / 2 s / 4 s backoff on
   transport errors, 429, 5xx and `SlowDown` / `Throttling` answers, for every method. `ObjectStorageService` passes the
   application logger, so each retry is logged at level **info** (`Try #n after …ms`). An `InternalErrorException`

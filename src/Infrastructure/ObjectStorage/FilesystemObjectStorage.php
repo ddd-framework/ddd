@@ -15,10 +15,13 @@ use RecursiveIteratorIterator;
  * Presigned requests are `file://` URLs a client of the same machine reads or writes directly; create-only conditions
  * are checked by the driver's own methods only (a client writing to a `file://` URL is not stopped).
  */
-class FilesystemObjectStorage implements ObjectStorage
+class FilesystemObjectStorage implements StreamingObjectStorage
 {
     /** Directory below the store's root (and prefix) that holds the parts of open multipart uploads */
     public const string MULTIPART_DIRECTORY = '.multipart';
+
+    /** File in an upload's directory that holds the key the upload writes (for {@see listMultipartUploads()}) */
+    public const string MULTIPART_KEY_FILE = 'key';
 
     public function __construct(
         protected string $rootDirectory,
@@ -231,6 +234,7 @@ class FilesystemObjectStorage implements ObjectStorage
         if (!@mkdir($uploadDirectory, 0775, true) && !is_dir($uploadDirectory)) {
             throw new InternalErrorException('Object storage: cannot create ' . $uploadDirectory);
         }
+        @file_put_contents($uploadDirectory . '/' . self::MULTIPART_KEY_FILE, ltrim($key, '/'));
         return $uploadId;
     }
 
@@ -323,6 +327,117 @@ class FilesystemObjectStorage implements ObjectStorage
     public function supportsConditionalWrites(): bool
     {
         return true;
+    }
+
+    public function readObjectChunks(string $key, ?ObjectStorageByteRange $byteRange = null, int $chunkBytes = self::DEFAULT_CHUNK_BYTES): ?iterable
+    {
+        $filePath = $this->getFilePath($key);
+        if (!is_file($filePath)) {
+            return null;
+        }
+        if ($byteRange === null) {
+            return ObjectStorageChunks::readFileChunks($filePath, 0, null, $chunkBytes);
+        }
+        $cutByteRange = $byteRange->cutToObjectSize((int)filesize($filePath));
+        if ($cutByteRange === null) {
+            return [];
+        }
+        return ObjectStorageChunks::readFileChunks($filePath, $cutByteRange->firstByte, $cutByteRange->getLength(), $chunkBytes);
+    }
+
+    public function putObjectFromStream(string $key, mixed $stream, int $contentLength, ?string $contentType = null): void
+    {
+        $targetFilePath = $this->getFilePath($key);
+        $this->ensureDirectoryOfFile($targetFilePath);
+        $this->writeStreamToFile($stream, $contentLength, $targetFilePath);
+    }
+
+    public function uploadPartFromStream(
+        string $key,
+        string $uploadId,
+        int $partNumber,
+        mixed $stream,
+        int $contentLength,
+        ?string $contentMd5 = null
+    ): ObjectStorageUploadedPart {
+        $this->getFilePath($key);
+        $uploadDirectory = $this->getMultipartUploadDirectory($uploadId);
+        if (!is_dir($uploadDirectory)) {
+            throw new InternalErrorException(sprintf('Object storage: upload %s does not exist', $uploadId));
+        }
+        $partFilePath = $uploadDirectory . '/' . max(1, $partNumber);
+        $this->writeStreamToFile($stream, $contentLength, $partFilePath);
+        $partMd5 = (string)md5_file($partFilePath);
+        if ($contentMd5 !== null && base64_encode((string)hex2bin($partMd5)) !== $contentMd5) {
+            @unlink($partFilePath);
+            throw new InternalErrorException(sprintf('Object storage: part %d of upload %s does not match its Content-MD5', $partNumber, $uploadId));
+        }
+        $uploadedPart = new ObjectStorageUploadedPart();
+        $uploadedPart->partNumber = max(1, $partNumber);
+        $uploadedPart->etag = $partMd5;
+        $uploadedPart->size = (int)filesize($partFilePath);
+        return $uploadedPart;
+    }
+
+    public function listMultipartUploads(string $keyPrefix = '', int $limit = 1000): ObjectStorageMultipartUploads
+    {
+        $multipartUploads = new ObjectStorageMultipartUploads();
+        $multipartRootDirectory = $this->rootDirectory . '/' . $this->keyPrefix . self::MULTIPART_DIRECTORY;
+        if (!is_dir($multipartRootDirectory)) {
+            return $multipartUploads;
+        }
+        $uploadDirectoriesByStart = [];
+        foreach ((array)scandir($multipartRootDirectory) as $uploadId) {
+            if (!is_string($uploadId) || !ctype_xdigit($uploadId) || !is_dir($multipartRootDirectory . '/' . $uploadId)) {
+                continue;
+            }
+            $keyFilePath = $multipartRootDirectory . '/' . $uploadId . '/' . self::MULTIPART_KEY_FILE;
+            $uploadKey = is_file($keyFilePath) ? (string)@file_get_contents($keyFilePath) : '';
+            if ($keyPrefix !== '' && !str_starts_with($uploadKey, ltrim($keyPrefix, '/'))) {
+                continue;
+            }
+            $uploadDirectoriesByStart[] = [(int)filemtime($multipartRootDirectory . '/' . $uploadId), $uploadId, $uploadKey];
+        }
+        sort($uploadDirectoriesByStart);
+        foreach (array_slice($uploadDirectoriesByStart, 0, max(1, $limit)) as [$startedAt, $uploadId, $uploadKey]) {
+            $multipartUpload = new ObjectStorageMultipartUpload();
+            $multipartUpload->key = $uploadKey;
+            $multipartUpload->uploadId = $uploadId;
+            $multipartUpload->initiatedAt = DateTime::fromTimestamp($startedAt);
+            $multipartUploads->add($multipartUpload);
+        }
+        return $multipartUploads;
+    }
+
+    /**
+     * Copies a stream's whole content into a file (through a temporary file next to it, renamed at the end).
+     *
+     * @param resource $stream
+     * @throws InternalErrorException when the stream holds another number of bytes than `$contentLength`
+     */
+    protected function writeStreamToFile(mixed $stream, int $contentLength, string $targetFilePath): void
+    {
+        if (!is_resource($stream)) {
+            throw new InternalErrorException('Object storage: a stream is needed to write ' . $targetFilePath);
+        }
+        $temporaryFilePath = $targetFilePath . '.' . bin2hex(random_bytes(6)) . '.part';
+        $targetHandle = @fopen($temporaryFilePath, 'wb');
+        if ($targetHandle === false) {
+            throw new InternalErrorException('Object storage: cannot write ' . $temporaryFilePath);
+        }
+        if (stream_get_meta_data($stream)['seekable']) {
+            @rewind($stream);
+        }
+        $copiedBytes = stream_copy_to_stream($stream, $targetHandle);
+        fclose($targetHandle);
+        if ($copiedBytes !== $contentLength) {
+            @unlink($temporaryFilePath);
+            throw new InternalErrorException(sprintf('Object storage: expected %d bytes, the stream held %d', $contentLength, (int)$copiedBytes));
+        }
+        if (!@rename($temporaryFilePath, $targetFilePath)) {
+            @unlink($temporaryFilePath);
+            throw new InternalErrorException('Object storage: cannot write ' . $targetFilePath);
+        }
     }
 
     /** @param string[] $headers */

@@ -397,6 +397,7 @@ Beyond `RestResponseDto` (JSON), the framework provides response types for diffe
 | `FileResponseDto` | Any MIME type | Generic file downloads |
 | `HtmlResponseDto` | `text/html` | HTML page rendering |
 | `RedirectResponseDto` | 302 redirect | HTTP redirects |
+| `ObjectStorageStreamResponseDto` | the server's type, foreign-bytes headers | An object of a store streamed through the backend (Range/206/416, ETag/304) |
 
 ```php
 // Excel export example
@@ -416,6 +417,34 @@ flat list of all uploaded files (`UploadedFile[]`), whatever the parts are named
 `FILES` property as `type: array, items: { type: string, format: binary }` in the operation's `multipart/form-data`
 content — the upload class itself is no schema of the API. The `@mgamadeus/ddd-web` generator turns it into a
 `multipartFiles` argument of the endpoint.
+
+### Streamed downloads and uploads (object store behind the backend)
+
+**Download:** `ObjectStorageStreamResponseDto::fromObjectStorage($streamingObjectStorage, $key, $request, $serverContentType,
+$fileName, $inlineWanted, ?$vettedInlineContentType, ?$objectStorageObject, $cacheMaxAgeSeconds)` — a Symfony
+`StreamedResponse` that reads the object chunk by chunk (`StreamingObjectStorage::readObjectChunks()`, a ranged GET on
+the store for a `Range`), never the whole object. 206 for one range (`bytes=a-b`, `a-`, `-n`), 416 with
+`Content-Range: bytes */<size>` beyond the end, 200 for several ranges or a stale `If-Range`, 304 for a matching
+`If-None-Match`, headers only for HEAD; `Content-Length`, `Accept-Ranges`, `ETag`, `Cache-Control: private`,
+`X-Accel-Buffering: no`; type, disposition, `nosniff` and sandbox CSP as `UntrustedContentHeaders` (inline: raster
+allow-list, or the caller's vetted type such as a PDF — no CSP on a PDF). PHP output buffers are closed before the
+first chunk (not under the CLI SAPI, where a test client reads through its buffer), each chunk is flushed, a client
+that left stops the read. Missing object → `NotFoundException`.
+
+**Upload:** send the bytes as `Content-Type: application/octet-stream` — `RequestDto` leaves such a body unread
+(`RequestDto::RAW_BODY_CONTENT_TYPES`) — and stream it: `$stream = $request->getContent(true)` (`php://input`,
+seekable under PHP-FPM; otherwise copy it once into `php://temp`), then `putObjectFromStream()` or, per part,
+`uploadPartFromStream()`. Never `$request->getContent()` (a string copy of the body), never one part twice in memory.
+
+**Host requirements** (nginx → PHP-FPM; equivalent settings elsewhere):
+- downloads: `X-Accel-Buffering: no` (sent by the DTO) or `fastcgi_buffering off;` on the route; no gzip of the
+  route's types; `output_buffering` and `zlib.output_compression` may stay on (the DTO closes the buffers);
+- uploads: one request carries one part. `client_max_body_size`, `post_max_size`, and PHP's `memory_limit` stay
+  above the part size; nginx buffers the body to a temp file first (`fastcgi_request_buffering on`, the default) and
+  `client_body_timeout` cuts a client that sends nothing for that long — the client retries the part;
+  `fastcgi_read_timeout` starts after the body is buffered and must cover the store's upload of one part;
+- a reverse proxy in front (Traefik, a load balancer): its read timeout covers one part's request, no buffering
+  middleware on download routes.
 
 ---
 

@@ -33,7 +33,7 @@ use Throwable;
  * (`1.1` / `2.0`, its `http_version`) apply to every operation; a retry after a transport error uses a new connection.
  * Unset, async-aws builds its own client: default socket timeout (usually 60 s), 3 retries.
  */
-class S3CompatibleObjectStorage implements ObjectStorage
+class S3CompatibleObjectStorage implements StreamingObjectStorage
 {
     public const string REQUIRED_PACKAGE = 'async-aws/s3';
     /** async-aws's own retry count, kept when a store sets only a timeout */
@@ -567,6 +567,121 @@ class S3CompatibleObjectStorage implements ObjectStorage
     public function supportsConditionalWrites(): bool
     {
         return $this->objectStorageSettings->conditionalWrites;
+    }
+
+    public function readObjectChunks(string $key, ?ObjectStorageByteRange $byteRange = null, int $chunkBytes = self::DEFAULT_CHUNK_BYTES): ?iterable
+    {
+        $getObjectRequest = [
+            'Bucket' => $this->objectStorageSettings->bucket,
+            'Key' => $this->getStorageKey($key),
+        ];
+        if ($byteRange !== null) {
+            $getObjectRequest['Range'] = $byteRange->toRangeHeaderValue();
+        }
+        try {
+            $getObjectOutput = $this->getS3Client()->getObject($getObjectRequest);
+            // waits for the status and the headers only; the body is read chunk by chunk below
+            $getObjectOutput->resolve();
+        } catch (NoSuchKeyException) {
+            return null;
+        } catch (Throwable $throwable) {
+            $httpStatusCode = $this->getHttpStatusCode($throwable);
+            if ($httpStatusCode === self::HTTP_STATUS_RANGE_NOT_SATISFIABLE) {
+                return [];
+            }
+            if ($httpStatusCode === self::HTTP_STATUS_NOT_FOUND) {
+                return null;
+            }
+            throw $this->createStorageException('stream', $key, $throwable);
+        }
+        return ObjectStorageChunks::regroupChunks($getObjectOutput->getBody()->getChunks(), $chunkBytes);
+    }
+
+    public function putObjectFromStream(string $key, mixed $stream, int $contentLength, ?string $contentType = null): void
+    {
+        if (!is_resource($stream)) {
+            throw new InternalErrorException(sprintf('Object storage "%s": put of "%s" needs a stream', $this->objectStorageSettings->name, $key));
+        }
+        $putObjectRequest = [
+            'Bucket' => $this->objectStorageSettings->bucket,
+            'Key' => $this->getStorageKey($key),
+            'Body' => $stream,
+            'ContentLength' => $contentLength,
+        ];
+        if ($contentType !== null) {
+            $putObjectRequest['ContentType'] = $contentType;
+        }
+        try {
+            $this->getS3Client()->putObject($putObjectRequest)->resolve();
+        } catch (Throwable $throwable) {
+            throw $this->createStorageException('put', $key, $throwable);
+        }
+    }
+
+    public function uploadPartFromStream(
+        string $key,
+        string $uploadId,
+        int $partNumber,
+        mixed $stream,
+        int $contentLength,
+        ?string $contentMd5 = null
+    ): ObjectStorageUploadedPart {
+        if (!is_resource($stream)) {
+            throw new InternalErrorException(sprintf('Object storage "%s": upload part of "%s" needs a stream', $this->objectStorageSettings->name, $key));
+        }
+        $uploadPartRequest = [
+            'Bucket' => $this->objectStorageSettings->bucket,
+            'Key' => $this->getStorageKey($key),
+            'UploadId' => $uploadId,
+            'PartNumber' => $partNumber,
+            'Body' => $stream,
+            'ContentLength' => $contentLength,
+        ];
+        if ($contentMd5 !== null) {
+            $uploadPartRequest['ContentMD5'] = $contentMd5;
+        }
+        try {
+            $uploadPartOutput = $this->getS3Client()->uploadPart($uploadPartRequest);
+            $uploadPartOutput->resolve();
+        } catch (Throwable $throwable) {
+            throw $this->createStorageException('upload part', $key, $throwable);
+        }
+        $uploadedPart = new ObjectStorageUploadedPart();
+        $uploadedPart->partNumber = $partNumber;
+        $uploadedPart->etag = trim((string)$uploadPartOutput->getEtag(), '"');
+        $uploadedPart->size = $contentLength;
+        return $uploadedPart;
+    }
+
+    public function listMultipartUploads(string $keyPrefix = '', int $limit = 1000): ObjectStorageMultipartUploads
+    {
+        $multipartUploads = new ObjectStorageMultipartUploads();
+        $storagePrefix = $this->objectStorageSettings->prefix;
+        try {
+            $listMultipartUploadsOutput = $this->getS3Client()->listMultipartUploads([
+                'Bucket' => $this->objectStorageSettings->bucket,
+                'Prefix' => $storagePrefix . ltrim($keyPrefix, '/'),
+                'MaxUploads' => min(1000, max(1, $limit)),
+            ]);
+            foreach ($listMultipartUploadsOutput->getUploads() as $awsMultipartUpload) {
+                if (count($multipartUploads->getElements()) >= $limit) {
+                    break;
+                }
+                $multipartUpload = new ObjectStorageMultipartUpload();
+                $storageKey = (string)$awsMultipartUpload->getKey();
+                $multipartUpload->key = $storagePrefix !== '' && str_starts_with($storageKey, $storagePrefix)
+                    ? substr($storageKey, strlen($storagePrefix))
+                    : $storageKey;
+                $multipartUpload->uploadId = (string)$awsMultipartUpload->getUploadId();
+                $multipartUpload->initiatedAt = $awsMultipartUpload->getInitiated() !== null
+                    ? DateTime::fromTimestamp($awsMultipartUpload->getInitiated()->getTimestamp())
+                    : null;
+                $multipartUploads->add($multipartUpload);
+            }
+        } catch (Throwable $throwable) {
+            throw $this->createStorageException('list multipart uploads', $keyPrefix, $throwable);
+        }
+        return $multipartUploads;
     }
 
     /** The signer of presigned requests that carry signed headers; the method a test overrides */

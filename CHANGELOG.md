@@ -2,6 +2,21 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.43.0
+
+- New `StreamingObjectStorage` (extends `ObjectStorage`; both Core drivers implement it): `readObjectChunks()` with an
+  optional `ObjectStorageByteRange` (a ranged GET on the store), `putObjectFromStream()`, `uploadPartFromStream()`
+  and `listMultipartUploads()` (`ObjectStorageMultipartUploads`). A driver of an application that implements only
+  `ObjectStorage` keeps working; callers check `instanceof`.
+- New `ObjectStorageStreamResponseDto`: streams an object through the backend (Range/206/416, ETag/304, HEAD,
+  `Content-Length`, `X-Accel-Buffering: no`, the foreign-bytes headers), chunk by chunk with a flush per chunk.
+- `RequestDto` leaves an `application/octet-stream` body unread (it was read as a string and decoded as JSON), so a
+  controller can stream it with `$request->getContent(true)`.
+- Hosts that stream through PHP: nginx `fastcgi_buffering off` or the `X-Accel-Buffering: no` header (sent),
+  body size and memory limits above one upload part — `ddd-endpoint-specialist` › "Streamed downloads and uploads".
+- Filesystem driver: an open multipart upload keeps its key in a file `key` of its directory (uploads started by an
+  older version are listed with an empty key).
+
 ## 3.42.0
 
 - New Composer bin `ddd-server-messages`: a PHP package lists the server messages its endpoints answer with in
