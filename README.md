@@ -340,6 +340,21 @@ class MyDDDModule extends DDDModule
 
 Modules are discovered automatically. Services auto-registered. Entities included in model generation. Config directories integrated with app > module > framework priority.
 
+**Naming a module.** A module owns one feature word and shows it in every outward layer. Fill in this table in the
+module's README:
+
+| Layer | Form | Example (`ddd-agent-sandbox`) |
+|---|---|---|
+| Composer, npm, repository | `mgamadeus/ddd-<name>`, `@mgamadeus/ddd-<name>`, `ddd-framework/ddd-<name>` | `ddd-agent-sandbox` |
+| Module class | `DDD\Modules\<Name>\<Name>Module` | `DDD\Modules\AgentSandbox\AgentSandboxModule` |
+| PHP | own domain `DDD\Domain\<Word>`; shared domain `DDD\Domain\<Domain>\<Layer>\<Feature>`, declared in `getOwnedNamespaces()` | `DDD\Domain\AI\Services\Sandboxes` |
+| Config | `config/app/<Word>/` or `config/app/<Domain>/<Word>/`, key = path with dots | `AI.Sandbox.*` |
+| Console, environment, image | `app:<package word>:`, `<PACKAGE_WORD>_*`, `ddd-<name>-<role>:<version>` | `app:agent-sandbox:`, `AGENT_SANDBOX_*`, `ddd-agent-sandbox-runner` |
+| Agent skill, package id | `<Topic>.<Feature>`, `<provider>.<topic>.<feature>` bound by class | `Agent.Sandbox.Shell`, `agent.sandbox.shell` |
+
+A module that is an organ of the agent (useless without one, but not depending on `ddd-agents`) is named
+`ddd-agent-<word>`. Releases are regular versions, never pre-releases.
+
 ### CLI Commands
 
 ```php

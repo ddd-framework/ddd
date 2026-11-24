@@ -2,6 +2,17 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.41.1
+
+- Console: a module command with `aliases` in its `AsCommand` attribute is listed once (name plus aliases). The module
+  pass gave it the plain `console.command` tag before the autoconfiguration added the attribute's tag, and the
+  console's command pass took the joined `alias|name|alias` string of the second tag as one more alias (shown in `list`). The new
+  `ConsoleCommandTagsOrderPass` (registered by `DDDKernel`) puts the named tag first and drops repeated names. Nothing
+  to do in an application; a kernel that does not extend `DDDKernel` registers the pass itself
+  (`PassConfig::TYPE_BEFORE_OPTIMIZATION`, priority -5).
+- Docs: the package cuts and names rulebook (domains, one feature word per package, `ddd-agent-*` organs, agent skill
+  names, package ids, right constants, package or host) in `ddd-module-orchestrator`, AGENTS.md and the README.
+
 ## 3.41.0
 
 - Owned namespaces: `DDDModule::getOwnedNamespaces()` (default: none) and the check

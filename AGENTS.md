@@ -571,6 +571,13 @@ packages ship one class name or one `config/app/` file, or a package that declar
 them. It reads the source files (no kernel, no class loaded); the application is no package there (its same-path
 classes and config files override on purpose).
 
+**Cuts and names:** a package owns ONE feature word, shown in every outward layer (package and repository name,
+module class, config path, console and env prefix, image, skill topic, package id); a domain is a functional area
+packages share. An organ of the agent is `ddd-agent-<word>`. Agent skills are `<Topic>.<Feature>` (never an audience
+or persona; `Agent.*` for the agent's own tools), package ids `<provider>.<topic>.<feature>` bound by class; a package
+declares right constants, the host maps them to roles. A tool over a package's table or service belongs to that
+package. Regular versions only. The full rulebook: `ddd-module-orchestrator` › `references/package-cuts-and-names.md`.
+
 **Config Priority:** App configs > Module configs > Framework configs.
 
 ---

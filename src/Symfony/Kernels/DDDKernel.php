@@ -3,6 +3,7 @@
 namespace DDD\Symfony\Kernels;
 
 use DDD\Symfony\CompilerPasses\ApplicationServiceSubclassAliasPass;
+use DDD\Symfony\CompilerPasses\ConsoleCommandTagsOrderPass;
 use DDD\Symfony\CompilerPasses\FrameworkCommandsYieldPass;
 use DDD\Symfony\CompilerPasses\FreshWorkerStateMiddlewarePass;
 use DDD\Symfony\CompilerPasses\ModuleCompilerPass;
@@ -228,5 +229,8 @@ class DDDKernel extends Kernel
         // A framework command yields to an application command of the same name. After the autoconfiguration has
         // tagged the commands (priority 100 of this phase), before the console's command loader (BEFORE_REMOVING).
         $container->addCompilerPass(new FrameworkCommandsYieldPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, -10);
+        // A module command with aliases is listed once: its named console.command tag goes first (the console reads
+        // name and aliases from the first tag). After the autoconfiguration, before the command loader.
+        $container->addCompilerPass(new ConsoleCommandTagsOrderPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, -5);
     }
 }
