@@ -6,6 +6,7 @@ namespace DDD\Infrastructure\ObjectStorage;
 
 use DDD\Infrastructure\Base\DateTime\DateTime;
 use DDD\Infrastructure\Exceptions\InternalErrorException;
+use Psr\Log\LoggerInterface;
 use FilesystemIterator;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -15,7 +16,7 @@ use RecursiveIteratorIterator;
  * Presigned requests are `file://` URLs a client of the same machine reads or writes directly; create-only conditions
  * are checked by the driver's own methods only (a client writing to a `file://` URL is not stopped).
  */
-class FilesystemObjectStorage implements StreamingObjectStorage, ParallelReadableObjectStorage
+class FilesystemObjectStorage implements StreamingObjectStorage, ParallelReadableObjectStorage, ObjectStorageDriver
 {
     /** Directory below the store's root (and prefix) that holds the parts of open multipart uploads */
     public const string MULTIPART_DIRECTORY = '.multipart';
@@ -30,7 +31,8 @@ class FilesystemObjectStorage implements StreamingObjectStorage, ParallelReadabl
         $this->rootDirectory = rtrim($rootDirectory, '/');
     }
 
-    public static function fromSettings(ObjectStorageSettings $objectStorageSettings): static
+    /** The driver `filesystem`: the root directory from `path`, the key prefix from `prefix`; no logger needed */
+    public static function fromSettings(ObjectStorageSettings $objectStorageSettings, ?LoggerInterface $logger = null): static
     {
         if ($objectStorageSettings->path === null) {
             throw new InternalErrorException(sprintf(

@@ -625,6 +625,44 @@ Datafilter::validEmail($email);                        // Input validation
 __('key', 'de', 'DE', 'FORMAL', ['%name%' => 'Max']); // Translation
 ```
 
+### Object Storage
+
+Named stores behind one service; a consumer asks for its store by name and the provider is configuration.
+
+```php
+$objectStorageService = DDDService::instance()->getService(ObjectStorageService::class);
+$pictureStorage = $objectStorageService->getBasicObjectStorage('pictures'); // put, get, delete, exists; null = not configured
+$exportStorage = $objectStorageService->getObjectStorage('exports');        // the full contract: list, presign, multipart, ranges
+```
+
+```php
+// config/app/Common/ObjectStorage.php
+return [
+    'drivers' => ['pictures-gateway' => \App\Infrastructure\ObjectStorage\PicturesGatewayObjectStorage::class],
+    'stores' => [
+        'exports' => ['driver' => 's3', 'endpoint' => 'https://fsn1.your-objectstorage.com', 'region' => 'fsn1', 'bucket' => 'exports'],
+        'backups' => ['driver' => 's3', 'region' => 'eu-central-1', 'bucket' => 'backups', 'credentials' => 'ambient'],
+        'pictures' => ['driver' => 'pictures-gateway', 'gatewayUrl' => 'https://pictures.example.com'],
+    ],
+];
+```
+
+- **Drivers:** `s3` (AWS S3, Hetzner, MinIO, R2, SeaweedFS; needs `async-aws/s3`) and `filesystem` are built in. An
+  application registers its own under `drivers`: a class implementing `ObjectStorageDriver` (the static factory
+  `fromSettings(ObjectStorageSettings $settings, ?LoggerInterface $logger = null): static` plus at least the four methods
+  of `BasicObjectStorage`). It reads its own keys with `$settings->getOption('gatewayUrl')` (env
+  `OBJECT_STORAGE_PICTURES_GATEWAY_URL` overrides the committed key). An unknown driver name throws, naming the
+  registered drivers.
+- **Two levels:** `BasicObjectStorage` (put, get, delete, exists) and `ObjectStorage` (extends it: list, temporary
+  URLs, presigned uploads, multipart, ranges, head, copy). `getObjectStorage()` refuses a store whose driver is narrow;
+  type a consumer that only keeps files by key against `BasicObjectStorage`.
+- **Credentials (s3):** `OBJECT_STORAGE_<NAME>_ACCESS_KEY` and `_SECRET_KEY` from the environment. Without both the
+  store is not configured (null, the reason logged once) unless it declares `'credentials' => 'ambient'`
+  (`OBJECT_STORAGE_<NAME>_CREDENTIALS=ambient`): then async-aws's credential chain of the host is used (environment,
+  profile, instance metadata).
+- Every committed setting is overridden per host by `OBJECT_STORAGE_<NAME>_<SETTING>`;
+  `getObjectStorageNotConfiguredReason($name)` says what is missing.
+
 ## Project Structure (Consuming Application)
 
 ```

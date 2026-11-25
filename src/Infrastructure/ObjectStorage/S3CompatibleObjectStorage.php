@@ -33,7 +33,7 @@ use Throwable;
  * (`1.1` / `2.0`, its `http_version`) apply to every operation; a retry after a transport error uses a new connection.
  * Unset, async-aws builds its own client: default socket timeout (usually 60 s), 3 retries.
  */
-class S3CompatibleObjectStorage implements StreamingObjectStorage, ParallelReadableObjectStorage
+class S3CompatibleObjectStorage implements StreamingObjectStorage, ParallelReadableObjectStorage, ObjectStorageDriver
 {
     public const string REQUIRED_PACKAGE = 'async-aws/s3';
     /** async-aws's own retry count, kept when a store sets only a timeout */
@@ -70,6 +70,15 @@ class S3CompatibleObjectStorage implements StreamingObjectStorage, ParallelReada
                 ObjectStorageSettings::getEnvName($objectStorageSettings->name, ObjectStorageSettings::SETTING_BUCKET)
             ));
         }
+    }
+
+    /**
+     * The driver `s3`. The service builds it only for a configured store: with `ACCESS_KEY` and `SECRET_KEY`, or with
+     * `credentials: ambient` (async-aws's credential chain: environment, profile, web identity, instance metadata).
+     */
+    public static function fromSettings(ObjectStorageSettings $objectStorageSettings, ?LoggerInterface $logger = null): static
+    {
+        return new static($objectStorageSettings, $logger);
     }
 
     public function putObject(string $key, string $content, ?string $contentType = null): void

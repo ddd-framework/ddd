@@ -1,6 +1,6 @@
 ---
 name: ddd-service-specialist
-description: "DDD services, business logic, QueryBuilder and rights in mgamadeus/ddd — vector/semantic search, Translatable fulltext, concurrency-safe atomic writes, updatePartialIgnoringRights, strict insert(), raw SQL for MariaDB and PostgreSQL (SqlDialect: JSON read and atomic JSON update, transaction lock, timeouts, isolation level, insert skipping existing rows). Covers instantiation (container, never new), find() caller-side vs in-service, the null-getService() fix, createQueryBuilder(true), PHPDoc @throws, update/delete overrides, junctions, async, throwErrors (enableThrowErrors/restoreThrowErrors), utilities (Config, Cache locks, Encrypt, IssuesLogService, ObjectStorage S3/R2, OAuth refresh refused vs failed). Use when creating services, writing custom queries or raw SQL that must run on both databases, changing a JSON column atomically, implementing rights, vector or fulltext search, storing files, safe or partial writes, or debugging a null getService(), No-alias-was-set or a lookup throwing only sometimes."
+description: "DDD services, business logic, QueryBuilder and rights in mgamadeus/ddd — vector/semantic search, Translatable fulltext, concurrency-safe atomic writes, updatePartialIgnoringRights, strict insert(), raw SQL for MariaDB and PostgreSQL (SqlDialect: atomic JSON update, locks, timeouts, isolation, insert skipping rows). Covers instantiation (container), find() caller-side vs in-service, the null-getService() fix, createQueryBuilder(true), PHPDoc @throws, update/delete overrides, junctions, async, throwErrors (enable/restore), utilities (Config, Cache locks, Encrypt, IssuesLogService, ObjectStorage: S3/R2, app drivers by config, basic vs full level, OAuth refresh refused vs failed). Use when creating services, writing custom queries or raw SQL for both databases, changing a JSON column atomically, implementing rights, vector or fulltext search, storing files or adding a storage driver, safe or partial writes, or debugging a null getService(), No-alias-was-set or a lookup throwing only sometimes."
 metadata:
   author: mgamadeus
   version: "1.4.1"
@@ -838,9 +838,21 @@ $exportsObjectStorage->putObject("reports/{$report->id}.pdf", $pdfContent, 'appl
 $downloadUrl = $exportsObjectStorage->createTemporaryUrl("reports/{$report->id}.pdf", 600);   // presigned GET
 ```
 
-- **`DDD\Infrastructure\ObjectStorage\ObjectStorage`:** `putObject($key, $content, ?$contentType)`,
+- **Two levels — type a consumer against the level it needs:**
+
+  | Level | Methods | Who needs it |
+  |---|---|---|
+  | `BasicObjectStorage` | `putObject`, `getObjectContent`, `deleteObject`, `objectExists` | a consumer that keeps its own files by key: pictures, cached renders, simple exports |
+  | `ObjectStorage` (extends Basic) | + listing, temporary URLs, presigned uploads, multipart, ranges, head, copy, write-once | browser downloads/uploads, the issues log's source maps (`listObjects`), the drive, anything presigned |
+  | `ParallelReadableObjectStorage` (extends Basic), `StreamingObjectStorage` (extends `ObjectStorage`) | optional on top, check `instanceof` | batch reads, streaming through the backend |
+
+  `getBasicObjectStorage($name): ?BasicObjectStorage` serves every driver; `getObjectStorage($name): ?ObjectStorage`
+  throws `InternalErrorException` for a store whose driver implements only the narrow level ("implements only
+  BasicObjectStorage"). A new consumer that only reads, writes, deletes and checks asks for the basic level, so a
+  narrow application driver can serve it.
+- **`BasicObjectStorage`:** `putObject($key, $content, ?$contentType)`,
   `getObjectContent($key): ?string` (null = missing, not an error), `deleteObject($key)` (missing is fine),
-  `objectExists($key)`, `listObjects($keyPrefix = '', $limit = 1000, ?$startAfterKey): ObjectStorageObjects` (key
+  `objectExists($key)`. **`ObjectStorage`** adds `listObjects($keyPrefix = '', $limit = 1000, ?$startAfterKey): ObjectStorageObjects` (key
   order; `{key, size, lastModified}`, `getKeys()`; continue a listing after its last key),
   `createTemporaryUrl($key, $expiresInSeconds = 3600, ?$responseContentType, ?$responseContentDisposition)`. Keys are
   `/`-separated without a leading slash; the store's prefix is applied by the adapter. A backend failure throws
@@ -894,17 +906,46 @@ $downloadUrl = $exportsObjectStorage->createTemporaryUrl("reports/{$report->id}.
 - **Recommended profile for small-object stores** (thumbnails, images, source maps):
   `'timeoutSeconds' => 5, 'maxRetries' => 3`. When uploads still stall or many run in parallel, try
   `'httpVersion' => '1.1'` (parallel requests on their own connections instead of one multiplexed HTTP/2 connection).
-- **`ObjectStorageService`:** `getObjectStorage($name): ?ObjectStorage` (null without a driver; throws only for an
-  incomplete store or a missing driver package), `isObjectStorageConfigured($name)`, `setObjectStorage($name, $store)`
-  for tests.
+- **`ObjectStorageService`:** `getObjectStorage($name): ?ObjectStorage` and `getBasicObjectStorage($name):
+  ?BasicObjectStorage` (null when not configured; throw for an unknown driver, an incomplete store or a missing driver
+  package), `isObjectStorageConfigured($name)`, `getObjectStorageNotConfiguredReason($name): ?string` (names the
+  settings to set), `getObjectStorageNames()` (committed store names), `setObjectStorage()` /
+  `setBasicObjectStorage()` for tests. A store that names a driver but is not configured logs its reason once per
+  process (warning); a store without a driver stays silent.
+- **Application drivers — by config, never by subclassing the service:** a class implementing
+  `ObjectStorageDriver` (extends `BasicObjectStorage`; add `ObjectStorage` for the full level) with the static factory
+  `fromSettings(ObjectStorageSettings $objectStorageSettings, ?LoggerInterface $logger = null): static`, registered in
+  `Common.ObjectStorage` → `'drivers' => ['<driver name>' => Class::class]` (names case-insensitive; an entry named `s3`
+  or `filesystem` replaces the built-in). The driver reads its own keys with `$settings->getOption('gatewayUrl')`,
+  `getBoolOption()`, `getIntOption()`: env `OBJECT_STORAGE_<NAME>_GATEWAY_URL` (option in upper snake case), else the
+  store's committed key. An unknown driver name, or a class that is no `ObjectStorageDriver`, throws with the
+  registered names.
+
+  ```php
+  class PicturesGatewayObjectStorage implements ObjectStorageDriver
+  {
+      public function __construct(protected string $gatewayUrl) {}
+
+      public static function fromSettings(ObjectStorageSettings $objectStorageSettings, ?LoggerInterface $logger = null): static
+      {
+          return new static($objectStorageSettings->getOption('gatewayUrl')
+              ?? throw new InternalErrorException("Object storage \"{$objectStorageSettings->name}\": gatewayUrl missing"));
+      }
+      // putObject, getObjectContent, deleteObject, objectExists
+  }
+  ```
 - **Adapters:** driver `s3` → `S3CompatibleObjectStorage` (AWS S3, Hetzner Object Storage, MinIO, Cloudflare R2,
   SeaweedFS) on **`async-aws/s3`, which Core only suggests** — the application requires it, else the store fails with
   "needs the package async-aws/s3"; driver `filesystem` → `FilesystemObjectStorage` (tests, development; a key
   leaving the root is refused).
 - **Configuration:** `config/app/Common/ObjectStorage.php` →
-  `['stores' => ['<name>' => ['driver', 'endpoint', 'region', 'bucket', 'pathStyle', 'prefix', 'path', 'timeoutSeconds', 'maxDurationSeconds', 'maxRetries', 'httpVersion']]]`;
+  `['drivers' => ['<name>' => Class::class], 'stores' => ['<name>' => ['driver', 'endpoint', 'region', 'bucket', 'pathStyle', 'prefix', 'path', 'timeoutSeconds', 'maxDurationSeconds', 'maxRetries', 'httpVersion', 'conditionalWrites', 'credentials', …driver options]]]`;
   `OBJECT_STORAGE_<NAME>_<SETTING>` overrides per host (NAME upper case, other characters `_`); credentials
-  `OBJECT_STORAGE_<NAME>_ACCESS_KEY` / `_SECRET_KEY` from the environment only. Hetzner: endpoint
+  `OBJECT_STORAGE_<NAME>_ACCESS_KEY` / `_SECRET_KEY` from the environment only.
+- **s3 credentials:** an s3 store without BOTH keys is NOT configured (null, reason names both variables) — async-aws
+  would otherwise walk its credential chain (instance metadata included) on every call. A store that runs on the
+  host's credentials (IAM role, web identity, profile) declares it: `'credentials' => 'ambient'` or
+  `OBJECT_STORAGE_<NAME>_CREDENTIALS=ambient`. Hetzner: endpoint
   `https://<location>.your-objectstorage.com`, region = location; R2: region `auto`; MinIO / SeaweedFS: `pathStyle: true`;
   AWS: no endpoint.
 - **Consumers:** the issues log reads source maps from the store `sourcemaps` (`ddd-issues-log-specialist`); uploads,

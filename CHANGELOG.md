@@ -2,6 +2,32 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.46.0
+
+- Object storage drivers by configuration: `Common.ObjectStorage` takes `'drivers' => ['<driver name>' => Class::class]`
+  next to `stores`. The class implements the new `ObjectStorageDriver` (the static factory
+  `fromSettings(ObjectStorageSettings $objectStorageSettings, ?LoggerInterface $logger = null): static`); `s3` and
+  `filesystem` are registered the same way (an application entry of the same name replaces them). A driver reads its
+  own keys with `ObjectStorageSettings::getOption()` / `getBoolOption()` / `getIntOption()` (env
+  `OBJECT_STORAGE_<NAME>_<OPTION>` in upper snake case, else the store's committed key). A driver name that is not
+  registered, or a class that is no `ObjectStorageDriver`, now throws `InternalErrorException` naming the registered
+  drivers (before: the store was silently not configured).
+- A narrow contract: `BasicObjectStorage` (`putObject`, `getObjectContent`, `deleteObject`, `objectExists`), which
+  `ObjectStorage` now extends; `ParallelReadableObjectStorage` extends `BasicObjectStorage`. New
+  `ObjectStorageService::getBasicObjectStorage()` serves every driver; `getObjectStorage()` keeps its `?ObjectStorage`
+  return type and throws for a store whose driver implements only the narrow contract. Also new:
+  `getObjectStorageNotConfiguredReason()`, `getObjectStorageNames()`, `setBasicObjectStorage()`.
+- s3 without keys: a store with driver `s3` but without both `OBJECT_STORAGE_<NAME>_ACCESS_KEY` and `_SECRET_KEY` is
+  no longer configured (null from the service, the reason logged once per process as a warning) — before, async-aws
+  walked its credential chain, instance metadata included, on every call. A store that uses the host's credentials on
+  purpose declares `'credentials' => 'ambient'` (or `OBJECT_STORAGE_<NAME>_CREDENTIALS=ambient`).
+- Applications: a store that ran on an IAM role, web identity or profile without keys was never a documented setup;
+  such a store now answers null until it declares `credentials: ambient` — check the warning log or
+  `getObjectStorageNotConfiguredReason()` for every s3 store without keys. An application that subclassed
+  `ObjectStorageService` to add a driver can register the driver in `Common.ObjectStorage.drivers` and drop the
+  subclass. Consumers that only put, get, delete and check objects may switch to `getBasicObjectStorage()` and type
+  against `BasicObjectStorage`. Nothing else changes.
+
 ## 3.45.0
 
 - Renames of packages as data: a package lists every rename of a skill name, constant, class, namespace, config key,

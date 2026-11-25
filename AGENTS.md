@@ -742,11 +742,16 @@ protected function throwForbiddenUnlessIssuesAccessAllowed(): void
 ```php
 use DDD\Infrastructure\Services\ObjectStorageService;
 
-$objectStorage = DDDService::instance()->getService(ObjectStorageService::class)->getObjectStorage('exports'); // null = not configured
+$objectStorageService = DDDService::instance()->getService(ObjectStorageService::class);
+$objectStorage = $objectStorageService->getObjectStorage('exports');            // full contract; null = not configured
 $objectStorage?->putObject('reports/42.pdf', $pdfContent, 'application/pdf');
 $url = $objectStorage?->createTemporaryUrl('reports/42.pdf', 600);   // presigned
-// Named stores in config/app/Common/ObjectStorage.php + OBJECT_STORAGE_<NAME>_* (credentials env only);
-// drivers s3 (any S3-compatible service, needs async-aws/s3) and filesystem. Details: ddd-service-specialist › Object Storage.
+$pictureStorage = $objectStorageService->getBasicObjectStorage('pictures');    // BasicObjectStorage: put/get/delete/exists only
+// Named stores in config/app/Common/ObjectStorage.php ('stores') + OBJECT_STORAGE_<NAME>_* (credentials env only);
+// drivers s3 (any S3-compatible service, needs async-aws/s3) and filesystem; an app driver is a class implementing
+// ObjectStorageDriver (static fromSettings()) registered in 'drivers' => ['<name>' => Class::class] — config, no
+// service subclass; its own keys via $settings->getOption('gatewayUrl'). s3 without both keys = not configured unless
+// 'credentials' => 'ambient' (host credential chain on purpose). Details: ddd-service-specialist › Object Storage.
 // Through the backend only (no presigned URL for clients): StreamingObjectStorage (readObjectChunks with a byte range,
 // putObjectFromStream, uploadPartFromStream, listMultipartUploads) + ObjectStorageStreamResponseDto (Range/206, ETag/304).
 ```

@@ -9,9 +9,10 @@ use DDD\Infrastructure\Exceptions\InternalErrorException;
 /**
  * An object store that reads several objects at once: the S3 driver sends every GET before it waits for the first
  * answer (one HTTP request each, all in flight together), the filesystem driver reads them one after another. A
- * caller checks `instanceof` and reads one by one through {@see ObjectStorage::getObjectContent()} otherwise.
+ * caller checks `instanceof` and reads one by one through {@see BasicObjectStorage::getObjectContent()} otherwise. It
+ * extends only {@see BasicObjectStorage}, so a narrow driver may offer parallel reads too.
  */
-interface ParallelReadableObjectStorage extends ObjectStorage
+interface ParallelReadableObjectStorage extends BasicObjectStorage
 {
     /**
      * The contents of several objects, key => content, with null for a missing object (every asked key answers).

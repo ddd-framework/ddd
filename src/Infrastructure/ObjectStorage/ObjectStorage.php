@@ -13,33 +13,13 @@ use DDD\Infrastructure\Exceptions\InternalErrorException;
  * {@see \DDD\Infrastructure\Services\ObjectStorageService::getObjectStorage()}.
  *
  * Every method throws {@see InternalErrorException} when the backend fails; a missing object is not an error.
+ *
+ * The wide contract: put, get, delete and exists of {@see BasicObjectStorage}, plus listing, presigned URLs and
+ * uploads, write-once objects, ranges, head, copy and multipart. A consumer that only reads, writes, deletes and checks
+ * objects types against {@see BasicObjectStorage} instead, so a narrow driver of the application serves it too.
  */
-interface ObjectStorage
+interface ObjectStorage extends BasicObjectStorage
 {
-    /**
-     * Writes the object, replacing an existing one.
-     *
-     * @throws InternalErrorException
-     */
-    public function putObject(string $key, string $content, ?string $contentType = null): void;
-
-    /**
-     * The object's content; null when there is no object under the key.
-     *
-     * @throws InternalErrorException
-     */
-    public function getObjectContent(string $key): ?string;
-
-    /**
-     * Removes the object; a missing object is fine.
-     *
-     * @throws InternalErrorException
-     */
-    public function deleteObject(string $key): void;
-
-    /** @throws InternalErrorException */
-    public function objectExists(string $key): bool;
-
     /**
      * The objects whose key starts with the prefix, in key order, at most $limit.
      *
