@@ -328,7 +328,8 @@ class FiltersDefinitions extends ObjectSet
                     DatabaseVirtualColumn::class
                 );
                 /** @var Choice $choiceAttribute */
-                $choiceAttribute = $reflectionProperty->getAttributeInstance(Choice::class);
+                // IS_INSTANCEOF: entities carry the framework's Choice, a subclass of Symfony's
+                $choiceAttribute = $reflectionProperty->getAttributeInstance(Choice::class, ReflectionAttribute::IS_INSTANCEOF);
                 $propertyName = $propertyPrefix . $reflectionProperty->getName();
                 $allowedPropertyValue = $choiceAttribute ? DDDChoice::getChoicesResolvedFromConstraint($choiceAttribute) : true;
 

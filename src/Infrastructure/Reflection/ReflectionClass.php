@@ -625,7 +625,8 @@ class ReflectionClass extends \ReflectionClass
      */
     public function getAttributeInstanceForProperty(string $propertyName, string $attributeName, int $flags = 0): mixed
     {
-        $index = $this->name . '_' . $propertyName . '_' . $attributeName;
+        // the flags belong to the key: an exact-name read and an IS_INSTANCEOF read of the same name are different lookups
+        $index = $this->name . '_' . $propertyName . '_' . $attributeName . '_' . $flags;
         if (isset(self::$attributeInstanceCache[$index]) || array_key_exists($index, self::$attributeInstanceCache)) {
             return self::$attributeInstanceCache[$index];
         } else {

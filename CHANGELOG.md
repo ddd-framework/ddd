@@ -2,6 +2,17 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.47.1
+
+- Reflection: the attribute-instance cache of a property keys on the lookup flags. Before, an exact-name read and an
+  `IS_INSTANCEOF` read of the same attribute shared one entry, so whichever ran first in the process decided the
+  other's answer (a miss was cached as null).
+- QueryOptions: the filter definitions read `Choice` with `IS_INSTANCEOF`, so the allowed values of a property with the
+  framework's `Choice` (a subclass of Symfony's) are known in every process. Before, they were present only when
+  something had read the column definition first. **Effect:** the generated `filters` description lists "one of [...]"
+  for such properties every time (surface snapshots change once), and a filter value outside the choices answers 400
+  every time instead of depending on process history.
+
 ## 3.47.0
 
 - New `DDD\Infrastructure\Exceptions\GoneException` (410: the target existed and will not come back, e.g. an expired
