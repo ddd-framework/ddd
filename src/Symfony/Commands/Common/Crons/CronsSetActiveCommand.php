@@ -8,6 +8,7 @@ use DDD\Domain\Common\Entities\Crons\Cron;
 use DDD\Domain\Common\Entities\Crons\Crons;
 use DDD\Infrastructure\Services\AuthService;
 use DDD\Infrastructure\Services\DDDService;
+use DDD\Infrastructure\Validation\ValidationErrors;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
@@ -80,6 +81,18 @@ abstract class CronsSetActiveCommand extends Command
                     continue;
                 }
                 static::TARGET_ACTIVE ? $cron->activate() : $cron->deactivate();
+                // the entity's own rules, also on a dry run: switching on needs a registered command, switching off
+                // never does ({@see Cron::isCommandRegistrationCheckRequired()})
+                $validationErrors = null;
+                $validation = $cron->validate($validationErrors);
+                if ($validation !== true) {
+                    $tableRows[] = [
+                        $cronName, $activeBefore, $activeBefore, $this->formatNextExecutionScheduledAt($cron),
+                        'REFUSED: ' . $this->formatValidationMessages($validation),
+                    ];
+                    $failureCount++;
+                    continue;
+                }
                 if (!$dryRun) {
                     $cron = $cron->update();
                 }
@@ -110,6 +123,22 @@ abstract class CronsSetActiveCommand extends Command
         if ($defaultAdminAccount) {
             AuthService::instance()->setAccount($defaultAdminAccount);
         }
+    }
+
+    /**
+     * The messages of a refused validation in one line; `validate()` answers the collected errors or FALSE.
+     */
+    protected function formatValidationMessages(ValidationErrors|bool $validation): string
+    {
+        $messages = [];
+        if ($validation instanceof ValidationErrors) {
+            foreach ($validation->getElements() as $validationError) {
+                foreach ($validationError->getElements() as $validationResult) {
+                    $messages[] = ($validationResult->propertyName ?? '?') . ': ' . ($validationResult->errorMessage ?? '');
+                }
+            }
+        }
+        return $messages === [] ? 'the Cron is invalid' : implode('; ', $messages);
     }
 
     /** @return string `activate` or `deactivate`, after {@see self::TARGET_ACTIVE} */

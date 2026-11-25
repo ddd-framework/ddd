@@ -2,6 +2,20 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.44.2
+
+- Crons: a Cron whose command is no longer registered (a release removed it) can be switched off again —
+  `app:crons:deactivate`, `app:crons:upsert --active=0`, and the admin endpoints deactivate / update with
+  `isActive: false` (before, the CLI failed with "is not a valid cron command" and only a database update stopped
+  it). The command check now judges a new Cron, an active Cron (switching on included) and a changed command
+  (`Cron::isCommandRegistrationCheckRequired()`, read by `CronCommandConstraintValidator`); switching on such a Cron is
+  refused with a message that names the way out (CLI: `REFUSED: …`, endpoint: 400 on `isActive`). Message of the
+  constraint reworded.
+- `app:crons:list` has a column `Command registered` and a warning naming the Crons whose command is not registered.
+  The admin `CronOverview` already carries `commandExists` (status `MISSING_COMMAND`); the screen can offer Switch off
+  for those rows. The tick keeps reporting such a Cron (one ERROR per hour, slot advanced) and never switches it off.
+- Nothing to do in an application.
+
 ## 3.44.1
 
 - Console: an application command that shares its name AND an alias with a framework command (the shape a host uses to keep an old name working) no longer breaks the kernel boot — `FrameworkCommandsYieldPass` collects the framework services to remove over all names and removes each once (before, the second shared name asked for the already removed definition: `ServiceNotFoundException`); test.

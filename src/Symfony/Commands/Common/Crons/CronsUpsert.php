@@ -25,7 +25,9 @@ use Throwable;
  * admin UI or a hand-written INSERT. Addressed by the Cron's unique `name`: absent → created (description, schedule
  * and command required), present → only the options passed are changed. Every write goes through the entity's own
  * validation (cron expression grammar, the command must exist in THIS console, description length), so a typo never
- * reaches the table; `--dryRun` validates and prints what would be written without persisting. A new or re-scheduled
+ * reaches the table; `--dryRun` validates and prints what would be written without persisting. `--active=0` on an
+ * existing Cron that keeps its command never checks the command, so a Cron whose command a release removed can be
+ * switched off; a new Cron, switching on and a changed command are checked. A new or re-scheduled
  * Cron gets its next execution computed from the expression right away, so the next `app:crons:execute` tick picks it up.
  */
 #[AsCommand(
@@ -49,10 +51,7 @@ class CronsUpsert extends Command
     {
         set_time_limit(120);
         $symfonyStyle = new SymfonyStyle($input, $output);
-        $defaultAdminAccount = DDDService::instance()->getDefaultAccountForCliOperations();
-        if ($defaultAdminAccount) {
-            AuthService::instance()->setAccount($defaultAdminAccount);
-        }
+        $this->setDefaultAdminAccountAsAuthContext();
         putenv('SYMFONY_DEPRECATIONS_HELPER=disabled');
 
         $name = trim((string)$input->getOption('name'));
@@ -145,6 +144,15 @@ class CronsUpsert extends Command
         } catch (Throwable $t) {
             $symfonyStyle->error(get_class($t) . ': ' . $t->getMessage());
             return Command::FAILURE;
+        }
+    }
+
+    /** Cron rows are admin-only for update ({@see Cron}'s RolesRequiredForUpdate), so the upsert runs as the CLI admin. */
+    protected function setDefaultAdminAccountAsAuthContext(): void
+    {
+        $defaultAdminAccount = DDDService::instance()->getDefaultAccountForCliOperations();
+        if ($defaultAdminAccount) {
+            AuthService::instance()->setAccount($defaultAdminAccount);
         }
     }
 

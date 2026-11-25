@@ -63,7 +63,7 @@ class CronOverview extends ValueObject
     /** @var bool Whether the runner takes it */
     public bool $isActive = true;
 
-    /** @var bool Whether the console of this build knows the command */
+    /** @var bool Whether the console of this build registers the command; false: the tick skips the Cron, it can be switched off or deleted but not switched on */
     public bool $commandExists = true;
 
     /** @var bool Whether the admin endpoints may schedule the command (`#[CronSchedulable]` or the framework's list) */

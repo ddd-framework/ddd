@@ -211,6 +211,60 @@ class CronsManagementServiceTest extends TestCase
         $this->assertSame(['isActive'], $cronsManagementService->persistedPropertyNames);
     }
 
+    /** A release removed the command: switching off and editing a paused Cron still work, switching on does not. */
+    public function testACronWhoseCommandWasRemovedCanBeSwitchedOffButNotOn(): void
+    {
+        $cronsManagementService = $this->createCronsManagementService();
+        $cron = $this->createStoredCron();
+        $cron->command = 'app:fixture:removed --batch=100';
+
+        $cronsManagementService->deactivateCron($cron);
+        $this->assertFalse($cron->isActive);
+        $this->assertSame(['isActive'], $cronsManagementService->persistedPropertyNames);
+
+        $cronsManagementService->persistedPropertyNames = [];
+        $cronsManagementService->updateCron($cron, description: 'Paused: its command was removed by a release');
+        $this->assertSame(['description'], $cronsManagementService->persistedPropertyNames, 'the unchanged command is not judged');
+
+        $cronsManagementService->persistedPropertyNames = [];
+        try {
+            $cronsManagementService->activateCron($cron);
+            $this->fail('a Cron with a removed command was switched on');
+        } catch (BadRequestException $badRequestException) {
+            $this->assertStringContainsString("can't be switched on", $badRequestException->getMessage());
+        }
+        try {
+            $cronsManagementService->updateCron($cron, isActive: true);
+            $this->fail('a Cron with a removed command was switched on by an update');
+        } catch (BadRequestException $badRequestException) {
+            $this->assertStringStartsWith('isActive:', $badRequestException->getMessage());
+        }
+        $this->assertFalse($cron->isActive);
+        $this->assertSame([], $cronsManagementService->persistedPropertyNames);
+    }
+
+    public function testAnUpdateThatOnlySwitchesOffDoesNotJudgeARemovedCommand(): void
+    {
+        $cronsManagementService = $this->createCronsManagementService();
+        $cron = $this->createStoredCron();
+        $cron->command = 'app:fixture:removed';
+
+        $cronsManagementService->updateCron($cron, commandName: 'app:fixture:removed', isActive: false);
+
+        $this->assertFalse($cron->isActive);
+        $this->assertSame(['isActive', 'nextExecutionScheduledAt'], $cronsManagementService->persistedPropertyNames);
+    }
+
+    public function testChangingTheCommandToAnUnknownOneIsRefused(): void
+    {
+        $cronsManagementService = $this->createCronsManagementService();
+        $cron = $this->createStoredCron();
+        $cron->isActive = false;
+
+        $this->expectException(BadRequestException::class);
+        $cronsManagementService->updateCron($cron, commandName: 'app:fixture:removed');
+    }
+
     public function testRunNowMakesTheCronDueForTheNextTick(): void
     {
         $cronsManagementService = $this->createCronsManagementService();

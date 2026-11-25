@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace DDD\Domain\Common\Entities\Crons;
 
 use DDD\Infrastructure\Services\DDDService;
@@ -10,7 +12,10 @@ use Symfony\Component\Validator\ConstraintValidator;
 use Symfony\Component\Validator\Exception\UnexpectedTypeException;
 
 /**
- * Cron command validator
+ * Cron command validator: the command (its first word) must be registered in this console. A Cron decides whether a
+ * write needs the check ({@see Cron::isCommandRegistrationCheckRequired()}): an existing Cron that is switched off and
+ * keeps its stored command is never refused for it, so a row whose command a release removed can still be switched
+ * off; a new Cron, an active Cron and a changed command are checked.
  */
 class CronCommandConstraintValidator extends ConstraintValidator
 {
@@ -21,6 +26,16 @@ class CronCommandConstraintValidator extends ConstraintValidator
         }
 
         if (null === $value || '' === $value) {
+            return;
+        }
+        $validatedObject = $this->context->getObject();
+        if ($validatedObject instanceof Cron && $validatedObject->command === $value) {
+            if ($validatedObject->hasRegisteredCommand() || !$validatedObject->isCommandRegistrationCheckRequired()) {
+                return;
+            }
+            $this->context->buildViolation($constraint->message)
+                ->setParameter('{{ value }}', $value)
+                ->addViolation();
             return;
         }
         $parts = explode(' ', trim($value), 2);

@@ -64,8 +64,9 @@ Status badges: `MISSING_COMMAND` and `FAILING` red, `OVERDUE` orange, `RUNNING` 
   `/list`; the run appears as RUNNING, then as the new last run. Never show a run-now as a result.
 - **Disable, then explain, a 409.** Run now is offered only for an active Cron that is not RUNNING; Delete not while
   RUNNING; a 409 still possible (the runner started meanwhile) is shown as its message, with a retry after a minute.
-- **MISSING_COMMAND** rows: no Run now; Edit to pick a command of this build, or Delete. The row stays: it came from
-  another branch or a removed command.
+- **MISSING_COMMAND** rows (`commandExists` false on every `CronOverview` of list and detail): no Run now, no switch
+  ON; offer Switch off (always accepted, the command is not checked), Edit to pick a command of this build, or Delete.
+  The row stays: it came from another branch or a removed command.
 - **Paused Crons** show no next-run countdown.
 - **Delete** confirms with the Cron's name and says the run history goes with it.
 - **Times**: the API gives the server's time zone (the runner's); label it, and count down against `serverNow`.

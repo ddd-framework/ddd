@@ -13,8 +13,10 @@ use DDD\Domain\Base\Entities\LazyLoad\LazyLoadRepo;
 use DDD\Domain\Base\Entities\QueryOptions\QueryOptions;
 use DDD\Domain\Base\Entities\QueryOptions\QueryOptionsTrait;
 use DDD\Domain\Base\Repo\DB\Database\DatabaseIndex;
+use DDD\Domain\Base\Repo\DB\Doctrine\EntityManagerFactory;
 use DDD\Domain\Common\Entities\Roles\Role;
 use DDD\Domain\Common\Repo\DB\Crons\DBCron;
+use DDD\Domain\Common\Repo\DB\Crons\DBCrons;
 use DDD\Domain\Common\Services\CronsService;
 use DDD\Infrastructure\Base\DateTime\DateTime;
 use DDD\Infrastructure\Cache\Cache;
@@ -22,6 +24,7 @@ use DDD\Infrastructure\Exceptions\BadRequestException;
 use DDD\Infrastructure\Exceptions\InternalErrorException;
 use DDD\Infrastructure\Services\DDDService;
 use DDD\Infrastructure\Services\IssuesLogService;
+use Doctrine\ORM\AbstractQuery;
 use Doctrine\ORM\Exception\ORMException;
 use Doctrine\ORM\NonUniqueResultException;
 use Doctrine\ORM\OptimisticLockException;
@@ -244,6 +247,17 @@ class Cron extends Entity
         }
     }
 
+    /**
+     * Whether this console registers the Cron's command (its first word): the check of the tick and of the entity
+     * validation ({@see CronCommandConstraintValidator}). True when the console cannot be built here.
+     *
+     * @return bool
+     */
+    public function hasRegisteredCommand(): bool
+    {
+        return $this->isCommandRegistered();
+    }
+
     /** Whether this application registers the Cron's command (its first word) — the seam a test replaces */
     protected function isCommandRegistered(): bool
     {
@@ -257,6 +271,48 @@ class Cron extends Entity
             // the application cannot be built here: let the process report it
             return true;
         }
+    }
+
+    /**
+     * Whether a write of this Cron must prove that its command is registered in this console
+     * ({@see CronCommandConstraintValidator}). It must for a new Cron, an active Cron (switching on included) and a
+     * changed command. It need not for an existing Cron that is (or is being switched) off and keeps its stored
+     * command: a release that removed the command must not keep the row from being switched off.
+     *
+     * @return bool
+     */
+    public function isCommandRegistrationCheckRequired(): bool
+    {
+        if (!isset($this->isActive) || $this->isActive) {
+            return true;
+        }
+        if (!isset($this->id) || !isset($this->command)) {
+            return true;
+        }
+        $storedCommand = $this->findStoredCommand();
+        return $storedCommand === null || trim($storedCommand) !== trim($this->command);
+    }
+
+    /**
+     * The command stored in this Cron's row, read from the database (never from an object in memory, which may carry
+     * the change itself); null when there is no row or it cannot be read. The seam a test replaces.
+     *
+     * @return string|null
+     */
+    protected function findStoredCommand(): ?string
+    {
+        try {
+            $storedCommand = EntityManagerFactory::getInstance()->createQueryBuilder()
+                ->select('cron.command')
+                ->from(DBCrons::getBaseModel(), 'cron')
+                ->where('cron.id = :cronId')
+                ->setParameter('cronId', $this->id)
+                ->getQuery()
+                ->getOneOrNullResult(AbstractQuery::HYDRATE_SINGLE_SCALAR);
+        } catch (Throwable) {
+            return null;
+        }
+        return $storedCommand === null ? null : (string)$storedCommand;
     }
 
     /** One ERROR for an unregistered command — at most once per hour per Cron, so a stale row does not flood the log */

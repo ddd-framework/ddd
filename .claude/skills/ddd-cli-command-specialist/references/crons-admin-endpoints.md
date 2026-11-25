@@ -110,6 +110,10 @@ extends …`; the framework's id then resolves to it) and overrides `describeCon
   command and switching are not blocked by a run.
 - Activate goes through `Cron::activate()` (a Cron paused across its slot does not fire at once); deactivate keeps
   the slot.
+- **A command that is not in this build** (a release removed it; `commandExists` false): deactivate, an update with
+  `isActive: false` and any update that leaves the command as it is are accepted — the command is never checked when
+  a Cron is switched off. Activate and an update with `isActive: true` answer 400 on `isActive`
+  (`COMMAND_MISSING_FOR_ACTIVATION_MESSAGE`); a new `commandName` must be schedulable as always.
 - Delete locks the row, refuses a running Cron (409), and removes the runs with it in one transaction.
 
 ## 6. Run now

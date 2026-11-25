@@ -105,6 +105,7 @@ class CronsManagementService extends Service
     public const string RUNNER_ABOUT_TO_START_MESSAGE = 'The runner is about to start this cron. Try again in a minute.';
     public const string NOT_SCHEDULABLE_MESSAGE = "This command can't be scheduled from the admin: it carries no #[CronSchedulable].";
     public const string COMMAND_MISSING_MESSAGE = "The command isn't in this build.";
+    public const string COMMAND_MISSING_FOR_ACTIVATION_MESSAGE = "The command isn't in this build, so this cron can't be switched on. Change the command, or leave the cron off or delete it.";
 
     protected ?Application $consoleApplication = null;
 
@@ -383,6 +384,10 @@ class CronsManagementService extends Service
         }
 
         if ($isActive !== null && $isActive !== $cron->isActive) {
+            if ($isActive) {
+                // switching on needs a command of this build; switching off never checks it (a removed command)
+                $this->assertCommandIsRegisteredBeforeSwitchingOn($cron);
+            }
             $isActive ? $cron->activate() : $cron->deactivate();
             $changedPropertyNames[] = 'isActive';
             $changedPropertyNames[] = 'nextExecutionScheduledAt';
@@ -405,11 +410,15 @@ class CronsManagementService extends Service
     }
 
     /**
-     * Switches the Cron on and re-anchors its next slot ({@see Cron::activate()}). Idempotent.
+     * Switches the Cron on and re-anchors its next slot ({@see Cron::activate()}). Idempotent. A command that is not in
+     * this build is refused (400 on `isActive`).
+     *
+     * @throws BadRequestException
      */
     public function activateCron(Cron $cron): Cron
     {
         if (!$cron->isActive) {
+            $this->assertCommandIsRegisteredBeforeSwitchingOn($cron);
             $cron->activate();
             $this->persistCronColumns($cron, 'isActive', 'nextExecutionScheduledAt');
         }
@@ -417,7 +426,8 @@ class CronsManagementService extends Service
     }
 
     /**
-     * Switches the Cron off; schedule, command and the stored slot stay ({@see Cron::deactivate()}). Idempotent.
+     * Switches the Cron off; schedule, command and the stored slot stay ({@see Cron::deactivate()}). Idempotent. The
+     * command is never checked: a Cron whose command a release removed can always be switched off.
      */
     public function deactivateCron(Cron $cron): Cron
     {
@@ -615,6 +625,20 @@ class CronsManagementService extends Service
                 sprintf('The command and its arguments take at most %d characters together.', self::COMMAND_MAX_LENGTH),
                 $cronCommandLine->arguments
             );
+        }
+    }
+
+    /**
+     * A Cron is switched on only with a command of this build (the rule of
+     * {@see Cron::isCommandRegistrationCheckRequired()} for the partial writes of this service).
+     *
+     * @throws BadRequestException
+     */
+    protected function assertCommandIsRegisteredBeforeSwitchingOn(Cron $cron): void
+    {
+        $commandName = CronCommandLine::fromCommand((string)($cron->command ?? ''))->commandName;
+        if ($commandName === '' || $this->findConsoleCommand($commandName) === null) {
+            $this->throwFieldError('isActive', self::COMMAND_MISSING_FOR_ACTIVATION_MESSAGE, (string)($cron->command ?? ''));
         }
     }
 

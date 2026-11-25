@@ -12,6 +12,7 @@ use DDD\Infrastructure\Base\DateTime\DateTime;
 use DDD\Infrastructure\Services\DDDService;
 use DDD\Symfony\Commands\Common\Crons\CronsActivate;
 use DDD\Symfony\Commands\Common\Crons\CronsDeactivate;
+use DDD\Tests\Domain\Common\Entities\Crons\CommandRegistrationProbeCron;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
@@ -60,12 +61,10 @@ class CronsSetActiveCommandTest extends TestCase
         unset(StaticRegistry::$entityServices[$cronsClassName]);
     }
 
-    protected function registerCron(string $name, bool $isActive, int $slotTimestamp): Cron
+    protected function registerCron(string $name, bool $isActive, int $slotTimestamp, bool $commandRegistered = true): Cron
     {
-        $cron = new Cron();
+        $cron = CommandRegistrationProbeCron::createStored('app:fixture:command', $isActive, $commandRegistered);
         $cron->name = $name;
-        $cron->schedule = '0 3 * * *';
-        $cron->isActive = $isActive;
         $cron->nextExecutionScheduledAt = DateTime::fromTimestamp($slotTimestamp);
         $this->cronsService->cronsByName[$name] = $cron;
         return $cron;
@@ -110,5 +109,23 @@ class CronsSetActiveCommandTest extends TestCase
         $this->assertFalse($first->isActive);
         $this->assertFalse($second->isActive);
         $this->assertStringContainsString('2 Cron(s) deactivated (nothing written)', $commandTester->getDisplay());
+    }
+
+    /** A release removed the command: the Cron can still be switched off, never on. */
+    public function testACronWhoseCommandWasRemovedCanBeDeactivatedButNotActivated(): void
+    {
+        $activeCron = $this->registerCron('removed command on', true, time() + 3600, false);
+        $commandTester = new CommandTester(new DeactivateWithoutAdminLookup('app:crons:deactivate'));
+        $exitCode = $commandTester->execute(['names' => ['removed command on'], '--dryRun' => true]);
+        $this->assertSame(Command::SUCCESS, $exitCode, $commandTester->getDisplay());
+        $this->assertFalse($activeCron->isActive);
+
+        $pausedCron = $this->registerCron('removed command off', false, time() - 86400, false);
+        $commandTester = new CommandTester(new ActivateWithoutAdminLookup('app:crons:activate'));
+        $exitCode = $commandTester->execute(['names' => ['removed command off'], '--dryRun' => true]);
+        $display = $commandTester->getDisplay();
+        $this->assertSame(Command::FAILURE, $exitCode);
+        $this->assertStringContainsString('REFUSED', $display);
+        $this->assertStringContainsString('not registered', $display);
     }
 }
