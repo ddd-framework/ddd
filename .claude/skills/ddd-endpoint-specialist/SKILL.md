@@ -548,7 +548,10 @@ use DDD\Infrastructure\Exceptions\UnauthorizedException;      // 401
 use DDD\Infrastructure\Exceptions\ForbiddenException;          // 403
 use DDD\Infrastructure\Exceptions\NotFoundException;           // 404
 use DDD\Infrastructure\Exceptions\MethodNotAllowedException;   // 405
+use DDD\Infrastructure\Exceptions\ConflictException;           // 409
+use DDD\Infrastructure\Exceptions\GoneException;               // 410
 use DDD\Infrastructure\Exceptions\InternalErrorException;      // 500
+use DDD\Infrastructure\Exceptions\BadGatewayException;         // 502
 ```
 
 `throwErrors = true` auto-throws `NotFoundException` from `find()`, `BadRequestException` for validation.

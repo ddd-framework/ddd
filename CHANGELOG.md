@@ -2,6 +2,12 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.47.0
+
+- New `DDD\Infrastructure\Exceptions\GoneException` (410: the target existed and will not come back, e.g. an expired
+  ring) and `BadGatewayException` (502: an upstream service failed). An application holding its own classes for these
+  statuses can move to them; nothing else to do.
+
 ## 3.46.3
 
 - QueryOptions: converting MOMENT literals from the caller's zone (`normalizeMomentLiterals()`, set when an input time
