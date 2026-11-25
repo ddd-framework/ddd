@@ -34,4 +34,23 @@ class FrameworkCommandsYieldPassTest extends TestCase
         self::assertTrue($containerBuilder->hasDefinition('App\\Symfony\\Commands\\RuntimeErrorsExtractCommand'));
         self::assertTrue($containerBuilder->hasDefinition(RuntimeErrorsProbe::class));
     }
+
+    /**
+     * An application command repeating the framework command's name AND its alias (to keep an old name working)
+     * shares two names with it: the framework service is removed once, the pass does not ask for it again.
+     */
+    public function testApplicationCommandSharingNameAndAliasRemovesTheFrameworkCommandOnce(): void
+    {
+        $sharedCommandNames = RuntimeErrorsExtract::COMMAND_NAME . '|app:legacy:runtime-errors-extract';
+        $containerBuilder = new ContainerBuilder();
+        $containerBuilder->setDefinition(RuntimeErrorsExtract::class, (new Definition(RuntimeErrorsExtract::class))
+            ->addTag(FrameworkCommandsYieldPass::CONSOLE_COMMAND_TAG, ['command' => $sharedCommandNames]));
+        $containerBuilder->setDefinition('App\\Symfony\\Commands\\RuntimeErrorsExtractCommand', (new Definition(Command::class))
+            ->addTag(FrameworkCommandsYieldPass::CONSOLE_COMMAND_TAG, ['command' => $sharedCommandNames]));
+
+        (new FrameworkCommandsYieldPass())->process($containerBuilder);
+
+        self::assertFalse($containerBuilder->hasDefinition(RuntimeErrorsExtract::class));
+        self::assertTrue($containerBuilder->hasDefinition('App\\Symfony\\Commands\\RuntimeErrorsExtractCommand'));
+    }
 }

@@ -2,6 +2,10 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.44.1
+
+- Console: an application command that shares its name AND an alias with a framework command (the shape a host uses to keep an old name working) no longer breaks the kernel boot — `FrameworkCommandsYieldPass` collects the framework services to remove over all names and removes each once (before, the second shared name asked for the already removed definition: `ServiceNotFoundException`); test.
+
 ## 3.44.0
 
 - `Cache` batches: `getMultiple(string[] $keys)` (key => value of the hits), `setMultiple(array $valuesByKey,

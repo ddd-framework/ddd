@@ -32,6 +32,10 @@ class FrameworkCommandsYieldPass implements CompilerPassInterface
                 $serviceIdsByCommandName[$commandName][] = $serviceId;
             }
         }
+        // collected over all names first: an application command sharing several names (name and aliases) with a
+        // framework command names the same framework service under each of them, and it is removed once
+        /** @var array<string, true> $frameworkServiceIdsToRemove method-local: service id → true */
+        $frameworkServiceIdsToRemove = [];
         foreach ($serviceIdsByCommandName as $serviceIds) {
             $serviceIds = array_values(array_unique($serviceIds));
             if (count($serviceIds) < 2) {
@@ -45,8 +49,11 @@ class FrameworkCommandsYieldPass implements CompilerPassInterface
                 continue;
             }
             foreach ($frameworkServiceIds as $frameworkServiceId) {
-                $container->removeDefinition($frameworkServiceId);
+                $frameworkServiceIdsToRemove[$frameworkServiceId] = true;
             }
+        }
+        foreach (array_keys($frameworkServiceIdsToRemove) as $frameworkServiceId) {
+            $container->removeDefinition((string)$frameworkServiceId);
         }
     }
 
