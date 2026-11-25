@@ -75,7 +75,14 @@ class RenameMatcher
 
     /**
      * Files named after the old name of a dotted name (`skills/Agent/Web.md`, `Agent.Web.md`,
-     * `config/app/AI/webSearch.php` for the config key `AI.webSearch`): reported, never moved. Folders are not reported.
+     * `config/app/AI/webSearch.php` for the config key `AI.webSearch`): reported with the path the file moves to, never
+     * moved. Folders are not reported.
+     *
+     * Boundary rule: the slash form of the old name must match whole trailing path segments. When the path also ends
+     * with the slash form of the new name, the longer of the two matches wins: a file that already sits at the new
+     * place (`Skills/Agent/Communication/Messages.md` for `Communication.Messages` -> `Agent.Communication.Messages`)
+     * is no hit, while a file at the old place of a shortening rename (`Agent.X.Y` -> `X.Y`) still is. A dotted file
+     * name counts only when it equals the old name exactly.
      *
      * @param RenameEntry[] $renameEntries
      * @return RenameHit[]
@@ -84,6 +91,7 @@ class RenameMatcher
     {
         $hits = [];
         $pathWithoutExtension = (string)preg_replace('/\.[A-Za-z0-9]+$/', '', $relativeFilePath);
+        $extension = substr($relativeFilePath, strlen($pathWithoutExtension));
         foreach ($renameEntries as $renameEntry) {
             if (!in_array($renameEntry->kind, [RenameEntry::KIND_SKILL_NAME, RenameEntry::KIND_PACKAGE_ID, RenameEntry::KIND_CONFIG_KEY], true)) {
                 continue;
@@ -91,16 +99,26 @@ class RenameMatcher
             if (!str_contains($renameEntry->oldName, '.')) {
                 continue;
             }
-            $slashForm = str_replace('.', '/', $renameEntry->oldName);
-            $matchesSlashForm = $pathWithoutExtension === $slashForm || str_ends_with($pathWithoutExtension, '/' . $slashForm);
-            $matchesDottedFileName = basename($pathWithoutExtension) === $renameEntry->oldName;
-            if ($matchesSlashForm || $matchesDottedFileName) {
+            $oldSlashForm = str_replace('.', '/', $renameEntry->oldName);
+            $newSlashForm = str_replace('.', '/', $renameEntry->newName);
+            $newPath = null;
+            if (static::pathEndsWithSegments($pathWithoutExtension, $oldSlashForm)) {
+                $isAtNewPlace = strlen($newSlashForm) > strlen($oldSlashForm)
+                    && static::pathEndsWithSegments($pathWithoutExtension, $newSlashForm);
+                if (!$isAtNewPlace) {
+                    $newPath = substr($pathWithoutExtension, 0, strlen($pathWithoutExtension) - strlen($oldSlashForm)) . $newSlashForm . $extension;
+                }
+            } elseif (basename($pathWithoutExtension) === $renameEntry->oldName) {
+                $directory = dirname($pathWithoutExtension);
+                $newPath = ($directory === '.' ? '' : $directory . '/') . $renameEntry->newName . $extension;
+            }
+            if ($newPath !== null) {
                 $hits[] = new RenameHit(
                     $renameEntry,
                     $relativeFilePath,
                     0,
                     $relativeFilePath,
-                    '',
+                    $newPath,
                     false,
                     'the path is spelled after the old name; move or rename it by hand',
                     type: RenameHit::TYPE_PATH,
@@ -108,6 +126,13 @@ class RenameMatcher
             }
         }
         return $hits;
+    }
+
+    /** Whether the path (without extension) ends with the given slash-separated segments, whole segments only */
+    protected static function pathEndsWithSegments(string $pathWithoutExtension, string $slashSeparatedSegments): bool
+    {
+        return $pathWithoutExtension === $slashSeparatedSegments
+            || str_ends_with($pathWithoutExtension, '/' . $slashSeparatedSegments);
     }
 
     /** A literal every hit of the entry contains: a file without it is skipped before any regular expression */

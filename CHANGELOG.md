@@ -2,6 +2,16 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.46.2
+
+- `ddd-renames`: a path hit (a file named after an old dotted name) carries the path the file moves to in
+  `replacement` (JSON) and after `->` (text) — the old name's slash form or dotted file name replaced by the new one,
+  extension kept, following a chain across versions to its last name. Before, `replacement` was empty.
+- `ddd-renames`: a file that already sits at the new place is no longer reported when the old path is a suffix of the
+  new one (`Skills/Agent/Communication/Messages.md` for `Communication.Messages` -> `Agent.Communication.Messages`).
+  Rule: the old slash form must match whole trailing segments, and when the path also ends with the new slash form,
+  the longer match wins. Nothing to do in applications; re-run the dry run to get the move targets.
+
 ## 3.46.1
 
 - `ddd-renames`: `--apply` and `--mark-applied` now also record the installed version of every package that could ship

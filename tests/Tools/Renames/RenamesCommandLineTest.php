@@ -37,8 +37,24 @@ class RenamesCommandLineTest extends TestCase
         self::assertStringContainsString('acme/agents (nothing recorded) -> 2.1.0: 7 renames pending', $output);
         self::assertStringContainsString('src/Agent/ResearchAgent.php:9:5  Acme\\Agents\\Tools\\WebTool -> Acme\\Agents\\Tools\\ResearchTool', $output);
         self::assertStringContainsString('Ambiguous (never written, check by hand):', $output);
-        self::assertStringContainsString('skills/Agent/Web.md  (skillName Agent.Web -> Web.Research', $output);
+        self::assertStringContainsString('skills/Agent/Web.md -> skills/Web/Search.md  (skillName Agent.Web -> Web.Research', $output, 'the path follows the chain to its last name');
         self::assertStringNotContainsString('AGENT_WEB_KEY', $output, 'a rename newer than the installed version is not pending');
+    }
+
+    public function testJsonPathHitsCarryTheNewPathAndSkipFilesAlreadyMoved(): void
+    {
+        $this->createApplication(['acme/agents' => 'v2.0.0', 'acme/settings' => '1.1.0']);
+        mkdir($this->applicationDirectory . '/skills/Acme/Agent', 0775, true);
+        file_put_contents($this->applicationDirectory . '/skills/Acme/Agent/Web.md', "moved by hand\n");
+        mkdir($this->applicationDirectory . '/skills/Web', 0775, true);
+        file_put_contents($this->applicationDirectory . '/skills/Web/Research.md', "already at the new place\n");
+        [, $output] = $this->runBin(['--format=json', '--exclude', 'legacy']);
+        $pathHits = array_values(array_filter(json_decode($output, true)['hits'], static fn(array $hit): bool => $hit['type'] === 'path'));
+        $replacementsByFile = array_column($pathHits, 'replacement', 'file');
+        self::assertSame('skills/Web/Research.md', $replacementsByFile['skills/Agent/Web.md'] ?? null, 'a real old-path file is reported with its new path');
+        self::assertSame('skills/Acme/Web/Research.md', $replacementsByFile['skills/Acme/Agent/Web.md'] ?? null);
+        self::assertArrayNotHasKey('skills/Web/Research.md', $replacementsByFile);
+        self::assertNotContains('', array_column($pathHits, 'replacement'));
     }
 
     public function testApplyWritesCertainHitsChainsVersionsAndRecordsTheState(): void

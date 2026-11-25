@@ -205,6 +205,35 @@ PHP;
         self::assertSame(RenameHit::TYPE_PATH, RenameMatcher::findPathHits('skills/Agent/Web.md', [$skillEntry])[0]->type);
     }
 
+    public function testPathHitsCarryTheNewPath(): void
+    {
+        $skillEntry = $this->createEntry(RenameEntry::KIND_SKILL_NAME, 'Agent.Web', 'Web.Search');
+        $configEntry = $this->createEntry(RenameEntry::KIND_CONFIG_KEY, 'AI.webSearch', 'AI.research');
+        self::assertSame('skills/Web/Search.md', RenameMatcher::findPathHits('skills/Agent/Web.md', [$skillEntry])[0]->replacementText);
+        self::assertSame('docs/Web.Search.md', RenameMatcher::findPathHits('docs/Agent.Web.md', [$skillEntry])[0]->replacementText);
+        self::assertSame('Web.Search.md', RenameMatcher::findPathHits('Agent.Web.md', [$skillEntry])[0]->replacementText);
+        self::assertSame('config/app/AI/research.php', RenameMatcher::findPathHits('config/app/AI/webSearch.php', [$configEntry])[0]->replacementText);
+        self::assertSame('Web/Search', RenameMatcher::findPathHits('Agent/Web', [$skillEntry])[0]->replacementText, 'a path without extension');
+    }
+
+    public function testAFileAlreadyAtTheNewPlaceIsNoPathHitWhenTheOldPathIsASuffixOfTheNewOne(): void
+    {
+        $lengtheningEntry = $this->createEntry(RenameEntry::KIND_SKILL_NAME, 'Communication.Messages', 'Agent.Communication.Messages');
+        self::assertSame([], RenameMatcher::findPathHits('Skills/Agent/Communication/Messages.md', [$lengtheningEntry]), 'already at the new place');
+        self::assertSame([], RenameMatcher::findPathHits('Agent/Communication/Messages.md', [$lengtheningEntry]), 'already at the new place, at the root');
+        self::assertSame([], RenameMatcher::findPathHits('Skills/Agent.Communication.Messages.md', [$lengtheningEntry]), 'a dotted file name at the new name');
+        $oldPlaceHits = RenameMatcher::findPathHits('Skills/Communication/Messages.md', [$lengtheningEntry]);
+        self::assertCount(1, $oldPlaceHits, 'a file still at the old place is reported');
+        self::assertSame('Skills/Agent/Communication/Messages.md', $oldPlaceHits[0]->replacementText);
+        self::assertSame('Skills/Agent.Communication.Messages.md', RenameMatcher::findPathHits('Skills/Communication.Messages.md', [$lengtheningEntry])[0]->replacementText);
+
+        $shorteningEntry = $this->createEntry(RenameEntry::KIND_SKILL_NAME, 'Agent.Communication.Messages', 'Communication.Messages');
+        $shorteningHits = RenameMatcher::findPathHits('Skills/Agent/Communication/Messages.md', [$shorteningEntry]);
+        self::assertCount(1, $shorteningHits, 'the longer old path wins over the shorter new one');
+        self::assertSame('Skills/Communication/Messages.md', $shorteningHits[0]->replacementText);
+        self::assertSame([], RenameMatcher::findPathHits('Skills/Communication/Messages.md', [$shorteningEntry]), 'already at the new place');
+    }
+
     protected function createEntry(string $kind, string $oldName, string $newName): RenameEntry
     {
         return new RenameEntry('acme/test', '2.0.0', $kind, $oldName, $newName);

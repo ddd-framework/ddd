@@ -188,10 +188,21 @@ class RenameRun
     protected function findHits(): void
     {
         $relativePaths = RenamesCommandLine::findApplicationFiles($this->rootDirectory, $this->includePatterns, $this->excludePatterns);
+        /** @var array<string, RenameHit> $pathHitsByRelativePath one path hit per file, its replacement the last name of a chain */
+        $pathHitsByRelativePath = [];
         foreach ($this->packageRenamesList as $packageRenames) {
             foreach ($packageRenames->pendingEntriesByVersion as $renameEntries) {
                 foreach ($relativePaths as $relativePath) {
-                    array_push($this->hits, ...RenameMatcher::findPathHits($relativePath, $renameEntries));
+                    $currentPath = isset($pathHitsByRelativePath[$relativePath]) ? $pathHitsByRelativePath[$relativePath]->replacementText : $relativePath;
+                    $pathHit = RenameMatcher::findPathHits($currentPath, $renameEntries)[0] ?? null;
+                    if ($pathHit !== null) {
+                        if (isset($pathHitsByRelativePath[$relativePath])) {
+                            $pathHitsByRelativePath[$relativePath]->replacementText = $pathHit->replacementText;
+                        } else {
+                            $pathHitsByRelativePath[$relativePath] = $pathHit;
+                            $this->hits[] = $pathHit;
+                        }
+                    }
                     $content = $this->changedContentsByPath[$relativePath] ?? @file_get_contents($this->rootDirectory . '/' . $relativePath);
                     if (!is_string($content) || str_contains(substr($content, 0, 8000), "\0")) {
                         continue;
@@ -343,7 +354,7 @@ class RenameRun
             $lines[] = '';
             $lines[] = 'Paths named after an old name (move by hand):';
             foreach ($pathHits as $hit) {
-                $lines[] = "  {$hit->relativeFilePath}  ({$hit->renameEntry->describe()})";
+                $lines[] = "  {$hit->relativeFilePath} -> {$hit->replacementText}  ({$hit->renameEntry->describe()})";
             }
         }
         $lines[] = '';

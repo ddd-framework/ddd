@@ -567,7 +567,11 @@ vendor/bin/ddd-renames --format=json            # the same report for tools
 - **Ambiguous hits are reported, never written:** a single plain word outside quotes, `C::OLD` without an import of `C`
   or outside PHP code, an inherited constant whose parent is another class, a short class name in its old namespace
   when the class moved, a new short name already imported. Files named after an old dotted name
-  (`skills/Agent/Web.md`, `config/app/AI/webSearch.php`) are listed to be moved by hand. Not covered: grouped imports
+  (`skills/Agent/Web.md`, `config/app/AI/webSearch.php`) are listed to be moved by hand, each with the path it moves
+  to (`replacement`, the last name of a chain). The old name in slash form must match whole trailing path segments;
+  when the path also ends with the new name in slash form, the longer match wins, so a file already at the new place
+  (`Skills/Agent/Communication/Messages.md` for `Communication.Messages` -> `Agent.Communication.Messages`) is no hit,
+  while the old place of a shortening rename still is. Not covered: grouped imports
   (`use A\{B, C}`), configuration keys written as nested array keys, moving files.
 - **Application wiring:** run `vendor/bin/ddd-renames` after `composer update` (it lists what the update renamed),
   `--apply`, review the diff, commit it with `.ddd-renames.json`; add `vendor/bin/ddd-renames --check` to CI.
