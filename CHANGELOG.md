@@ -2,6 +2,13 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.46.3
+
+- QueryOptions: converting MOMENT literals from the caller's zone (`normalizeMomentLiterals()`, set when an input time
+  zone is active, e.g. MCP tools) leaves `eq` / `ne` against `'null'` in any case alone, as validation and the query
+  builder already read it as IS [NOT] NULL. Before, `oneTimeAt eq 'NULL'` answered "is not a date-time". New
+  `FiltersOptions::isNullComparison()`. Nothing to do for applications.
+
 ## 3.46.2
 
 - `ddd-renames`: a path hit (a file named after an old dotted name) carries the path the file moves to in

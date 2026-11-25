@@ -631,7 +631,7 @@ $filters->normalizeMomentLiterals($queryOptions->getFiltersDefinitions(), $input
 
 - Walks the whole tree, including nested `and`/`or` groups.
 - Rewrites every MOMENT literal, scalars and each element of an `in` / `ni` / `bw` array alike.
-- `null` literals, numbers, DAY filters and non-temporal filters are left exactly as they are.
+- `null` literals, `eq` / `ne` against `'null'` in any case (IS [NOT] NULL, e.g. `oneTimeAt eq 'NULL'`), numbers, DAY filters and non-temporal filters are left exactly as they are.
 - An explicit offset in the literal wins over the zone; a literal that is not a date-time at all, or a local time that does not exist in the zone, raises a `BadRequestException` — staying silent would keep exactly the wrong-zone comparison the conversion exists to remove.
 
 `toCanonicalExpression()` serializes a parsed (or normalized, or code-built) tree back into the filter grammar: operation nodes are fully parenthesized (the parser has no precedence rules, so explicit grouping is the only way a mixed `and`/`or` tree survives), arrays are written as JSON, strings are single-quoted with `\` and `'` escaped. `fromString(toCanonicalExpression(fromString($x)))` yields an equal tree.

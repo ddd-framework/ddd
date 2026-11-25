@@ -707,9 +707,7 @@ MD;
             return;
         }
         $value = $this->value ?? null;
-        $isNullComparison = in_array($this->operator, [self::OPERATOR_EQUAL, self::OPERATOR_NOT_EQUAL], true)
-            && ($value === null || (is_string($value) && strtoupper($value) === 'NULL'));
-        if ($isNullComparison) {
+        if ($this->isNullComparison()) {
             return;
         }
         $valueUsesWildcard = is_string($value) && str_contains($value, '*');
@@ -897,7 +895,23 @@ MD;
             $this->value = $normalizedValues;
             return;
         }
+        if ($this->isNullComparison()) {
+            // `eq` / `ne` with 'null' in any case is IS [NOT] NULL, as validation and the query builder read it
+            return;
+        }
         $this->value = $this->normalizeMomentLiteral($this->value, $timezone);
+    }
+
+    /**
+     * Whether this expression is `eq` / `ne` against null or the literal 'null' in any case (IS [NOT] NULL).
+     */
+    public function isNullComparison(): bool
+    {
+        if (!in_array($this->operator ?? null, [self::OPERATOR_EQUAL, self::OPERATOR_NOT_EQUAL], true)) {
+            return false;
+        }
+        $value = $this->value ?? null;
+        return $value === null || (is_string($value) && strtoupper($value) === 'NULL');
     }
 
     /**
