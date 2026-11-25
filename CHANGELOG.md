@@ -2,6 +2,12 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.47.2
+
+- QueryOptions: the allowed-values check of a property with a `Choice` skips `eq` / `ne` against null (`null`,
+  `'NULL'`, any case) — IS [NOT] NULL is no value of the property. Since 3.47.1 the allowed values are known in every
+  process, so `stateReason eq null` on a nullable `Choice` property was refused with "Allowed values are: [...]".
+
 ## 3.47.1
 
 - Reflection: the attribute-instance cache of a property keys on the lookup flags. Before, an exact-name read and an

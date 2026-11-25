@@ -659,6 +659,10 @@ MD;
                 );
             }
         }
+        if ($this->isNullComparison()) {
+            // IS [NOT] NULL is no value of the property: the allowed values do not apply
+            return true;
+        }
         if (
             $filterDefinition->options && !is_array($this->value) && !in_array(
                 $this->value,

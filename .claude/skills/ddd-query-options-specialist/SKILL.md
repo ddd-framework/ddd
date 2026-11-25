@@ -237,7 +237,7 @@ result or a 500). The kind (`FiltersDefinition::$columnKind`) comes from the dec
 | `translatable-searchable` | `#[Translatable(fullTextIndex: true)]` | anything; compared and sorted on `virtual{Prop}Search` | as sent |
 
 - Never validated: `eq` / `ne` with `null` or `'null'` in any case (IS [NOT] NULL, on the source column even for a
-  searchable Translatable), the fulltext operators (search text), a definition without a kind (other unions, virtual
+  searchable Translatable; also exempt from a `Choice` property's allowed values), the fulltext operators (search text), a definition without a kind (other unions, virtual
   columns, constructor-form `FiltersDefinitions`), and filters set with `setFilters(…, false)`.
 - A value containing `*` on a scalar kind keeps its LIKE and is not type-checked (`tableNumber eq '*4*'`).
 - An unquoted numeral arrives as a float from the parser (`7` → `7.0`) and is judged by its string form (`"7"`).
