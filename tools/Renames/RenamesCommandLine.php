@@ -20,7 +20,9 @@ use Throwable;
  * the entries newer than the version recorded in the application's state file `.ddd-renames.json` (all entries when
  * nothing is recorded; `--from-version <package>=<version>` overrides the record) and not newer than the installed
  * version. `--apply` writes the certain hits and records the installed versions; the state file is committed with
- * the application, so `--check` in CI fails while a package update's renames are not applied.
+ * the application, so `--check` in CI fails while a package update's renames are not applied. `--apply` and
+ * `--mark-applied` also record the installed version of every DDD module and `mgamadeus/*` package that ships no map
+ * yet, so a map backfilled to older versions later makes only the renames after that baseline pending.
  *
  * What is scanned: every text file below the root except `vendor/`, `node_modules/`, `.git/`, `var/` and the other
  * folders of `DEFAULT_EXCLUDED_DIRECTORY_NAMES` (at any depth), symbolic links, lock files and the state file;
@@ -83,11 +85,16 @@ Usage:
       --apply             writes the certain hits and records the installed versions in .ddd-renames.json
       --check             CI: exit 1 while renames are pending (not yet applied and recorded)
       --mark-applied      records the installed versions without writing files (renames already done by hand)
-      --root <dir>        application root (default: current directory)
-      --vendor-dir <dir>  Composer vendor folder (default: <root>/vendor)
+                          (--apply and --mark-applied also record the installed version of every DDD module and
+                          mgamadeus/* package without a renames.json, the baseline for a map it ships later)
+      --root <dir>        application root, where .ddd-renames.json lives (default: current directory)
+      --vendor-dir <dir>  Composer vendor folder (default: "vendorDir" of the state file, else <root>/vendor;
+                          --apply / --mark-applied record it there when it lies below the root)
       --from-version <package>=<version>   treat renames up to <version> as applied (repeatable; overrides the record)
-      --include <path>    scan only these paths (folder prefix or glob, repeatable; adds to "include" of the state file)
-      --exclude <path>    skip these paths (folder prefix or glob, repeatable; adds to "exclude" of the state file)
+      --include <path>    scan only these paths (folder prefix or glob, repeatable; --apply / --mark-applied add it
+                          to "include" of the state file, a dry run and --check use it for this run only)
+      --exclude <path>    skip these paths (folder prefix or glob, repeatable; --apply / --mark-applied add it
+                          to "exclude" of the state file, a dry run and --check use it for this run only)
       --format=json       machine-readable report on stdout
   ddd-renames validate [--package-dir <dir>] [--format=json]
       Checks a package's own renames.json (schema, versions, kinds, old != new, no chain or swap within a version).
@@ -142,7 +149,7 @@ TEXT;
             }
             $renameRun = new RenameRun(
                 $rootDirectory,
-                $vendorDirectory === null ? $rootDirectory . '/vendor' : static::toAbsolutePath($vendorDirectory, $currentDirectory),
+                $vendorDirectory === null ? null : static::toAbsolutePath($vendorDirectory, $currentDirectory),
                 $mode,
                 $fromVersionsByPackage,
                 static::readOptionValues($arguments, '--include'),

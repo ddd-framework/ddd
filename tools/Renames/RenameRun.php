@@ -13,6 +13,9 @@ use RuntimeException;
  */
 class RenameRun
 {
+    /** Every package of this vendor counts as one that could ship a rename map */
+    public const string RENAME_MAP_CANDIDATE_VENDOR_PREFIX = 'mgamadeus/';
+
     /** @var PackageRenames[] */
     public array $packageRenamesList = [];
 
@@ -31,6 +34,16 @@ class RenameRun
     /** @var string[] effective exclude patterns (state file + options) */
     public array $excludePatterns = [];
 
+    /**
+     * Installed packages that could ship a rename map but ship none today (every DDD module, i.e. `extra.ddd-module`
+     * in installed.json, and every `mgamadeus/*` package, Core included): their installed versions are recorded as
+     * the baseline on `--apply` and `--mark-applied`, so a map they ship later (backfilled to older versions) makes
+     * only the renames after that baseline pending.
+     *
+     * @var array<string, string> package name => installed regular version
+     */
+    public array $baselineVersionsByPackage = [];
+
     /** @var array<string, string> relative path => content after the certain hits */
     protected array $changedContentsByPath = [];
 
@@ -38,13 +51,14 @@ class RenameRun
     protected array $stateDocument = [];
 
     /**
+     * @param string|null $vendorDirectory absolute; null: the `vendorDir` of the state file (relative to the root), else `<root>/vendor`
      * @param array<string, string> $fromVersionsByPackage package => version treated as applied
      * @param string[] $optionIncludePatterns
      * @param string[] $optionExcludePatterns
      */
     public function __construct(
         public string $rootDirectory,
-        public string $vendorDirectory,
+        public ?string $vendorDirectory = null,
         public string $mode = RenamesCommandLine::MODE_DRY_RUN,
         public array $fromVersionsByPackage = [],
         public array $optionIncludePatterns = [],
@@ -58,6 +72,7 @@ class RenameRun
             throw new RuntimeException("no folder {$this->rootDirectory}");
         }
         $this->readStateFile();
+        $this->resolveVendorDirectory();
         $this->readInstalledPackages();
         if ($this->mode !== RenamesCommandLine::MODE_MARK_APPLIED && $this->hasPendingRenames()) {
             $this->findHits();
@@ -92,6 +107,36 @@ class RenameRun
         $this->excludePatterns = array_values(array_unique([...$stateExcludes, ...$this->optionExcludePatterns]));
     }
 
+    /**
+     * `--vendor-dir` wins; else the `vendorDir` recorded in the state file (relative to the root); else `<root>/vendor`.
+     */
+    protected function resolveVendorDirectory(): void
+    {
+        if ($this->vendorDirectory !== null) {
+            return;
+        }
+        $recordedVendorDirectory = $this->stateDocument['vendorDir'] ?? null;
+        $this->vendorDirectory = is_string($recordedVendorDirectory) && trim($recordedVendorDirectory, '/') !== ''
+            ? $this->rootDirectory . '/' . trim($recordedVendorDirectory, '/')
+            : $this->rootDirectory . '/vendor';
+    }
+
+    /**
+     * Whether an installed package could ship a rename map: a DDD module (`extra.ddd-module`) or a `mgamadeus/*`
+     * package (Core and every package of the framework).
+     *
+     * @param array<string, mixed> $installedPackage an entry of installed.json
+     */
+    public static function isRenameMapCandidate(array $installedPackage): bool
+    {
+        $packageName = (string)($installedPackage['name'] ?? '');
+        if (str_starts_with($packageName, self::RENAME_MAP_CANDIDATE_VENDOR_PREFIX)) {
+            return true;
+        }
+        $extra = $installedPackage['extra'] ?? null;
+        return is_array($extra) && is_string($extra['ddd-module'] ?? null) && $extra['ddd-module'] !== '';
+    }
+
     protected function readInstalledPackages(): void
     {
         $installedFile = $this->vendorDirectory . '/composer/installed.json';
@@ -111,6 +156,10 @@ class RenameRun
                 : $this->vendorDirectory . '/' . $packageName;
             $mapFile = rtrim($installPath, '/') . '/' . RenameMap::MAP_FILE_NAME;
             if (!is_file($mapFile)) {
+                $installedVersion = static::readRegularVersion($installedPackage);
+                if ($installedVersion !== null && static::isRenameMapCandidate($installedPackage)) {
+                    $this->baselineVersionsByPackage[$packageName] = $installedVersion;
+                }
                 continue;
             }
             $renameMap = RenameMap::loadFromFile($mapFile, $packageName);
@@ -127,6 +176,7 @@ class RenameRun
             $packageRenames->computePendingEntries();
             $this->packageRenamesList[] = $packageRenames;
         }
+        ksort($this->baselineVersionsByPackage, SORT_STRING);
         usort($this->packageRenamesList, static fn(PackageRenames $first, PackageRenames $second): int => strcmp($first->packageName, $second->packageName));
         foreach (array_keys($this->fromVersionsByPackage) as $packageName) {
             if (!in_array($packageName, array_map(static fn(PackageRenames $packageRenames): string => $packageRenames->packageName, $this->packageRenamesList), true)) {
@@ -166,8 +216,17 @@ class RenameRun
     {
         $stateDocument = $this->stateDocument;
         $stateDocument['format'] = RenamesCommandLine::STATE_FORMAT;
-        $stateDocument['include'] = array_values(array_filter((array)($stateDocument['include'] ?? []), 'is_string'));
-        $stateDocument['exclude'] = array_values(array_filter((array)($stateDocument['exclude'] ?? []), 'is_string'));
+        // --include / --exclude of this run are added to the state file's lists (only modes that write the state get here)
+        $stateDocument['include'] = $this->includePatterns;
+        $stateDocument['exclude'] = $this->excludePatterns;
+        $relativeVendorDirectory = $this->findVendorDirectoryRelativeToRoot();
+        if ($relativeVendorDirectory === 'vendor') {
+            unset($stateDocument['vendorDir']);
+        } elseif ($relativeVendorDirectory !== null) {
+            $stateDocument['vendorDir'] = $relativeVendorDirectory;
+        } else {
+            $this->warnings[] = "--vendor-dir {$this->vendorDirectory} lies outside the root: not recorded in " . RenamesCommandLine::STATE_FILE_NAME;
+        }
         $recordedPackages = is_array($stateDocument['packages'] ?? null) ? $stateDocument['packages'] : [];
         foreach ($this->packageRenamesList as $packageRenames) {
             $versionToRecord = $packageRenames->getVersionToRecord();
@@ -175,13 +234,34 @@ class RenameRun
                 $recordedPackages[$packageRenames->packageName] = ['appliedThroughVersion' => $versionToRecord];
             }
         }
+        foreach ($this->baselineVersionsByPackage as $packageName => $installedVersion) {
+            $recordedVersion = $recordedPackages[$packageName]['appliedThroughVersion'] ?? null;
+            if (!is_string($recordedVersion) || version_compare($installedVersion, $recordedVersion, '>')) {
+                $recordedPackages[$packageName] = ['appliedThroughVersion' => $installedVersion];
+            }
+        }
         ksort($recordedPackages, SORT_STRING);
         $stateDocument['packages'] = (object)$recordedPackages;
-        $orderedDocument = ['format' => $stateDocument['format'], 'include' => $stateDocument['include'], 'exclude' => $stateDocument['exclude'], 'packages' => $stateDocument['packages']];
+        $orderedDocument = ['format' => $stateDocument['format']]
+            + (isset($stateDocument['vendorDir']) ? ['vendorDir' => $stateDocument['vendorDir']] : [])
+            + ['include' => $stateDocument['include'], 'exclude' => $stateDocument['exclude'], 'packages' => $stateDocument['packages']];
         file_put_contents(
             $this->rootDirectory . '/' . RenamesCommandLine::STATE_FILE_NAME,
             RenamesCommandLine::encodeJson($orderedDocument + $stateDocument)
         );
+    }
+
+    /**
+     * The vendor folder relative to the root (`app/vendor`), null when it lies outside the root.
+     */
+    protected function findVendorDirectoryRelativeToRoot(): ?string
+    {
+        $realRootDirectory = realpath($this->rootDirectory);
+        $realVendorDirectory = realpath((string)$this->vendorDirectory);
+        if ($realRootDirectory === false || $realVendorDirectory === false || !str_starts_with($realVendorDirectory, rtrim($realRootDirectory, '/') . '/')) {
+            return null;
+        }
+        return substr($realVendorDirectory, strlen(rtrim($realRootDirectory, '/')) + 1);
     }
 
     /**
@@ -223,6 +303,13 @@ class RenameRun
         }
         if ($this->packageRenamesList === []) {
             $lines[] = "{$prefix}no installed package ships a renames.json";
+        }
+        if ($this->baselineVersionsByPackage !== [] && in_array($this->mode, [RenamesCommandLine::MODE_APPLY, RenamesCommandLine::MODE_MARK_APPLIED], true)) {
+            $baselineDescriptions = [];
+            foreach ($this->baselineVersionsByPackage as $packageName => $installedVersion) {
+                $baselineDescriptions[] = "{$packageName} {$installedVersion}";
+            }
+            $lines[] = "{$prefix}baseline recorded for packages without a renames.json: " . implode(', ', $baselineDescriptions);
         }
         foreach ($this->packageRenamesList as $packageRenames) {
             $from = $packageRenames->appliedThroughVersion ?? '(nothing recorded)';
@@ -285,7 +372,9 @@ class RenameRun
             'mode' => $this->mode,
             'root' => $this->rootDirectory,
             'pending' => $this->hasPendingRenames(),
+            'vendorDir' => $this->vendorDirectory,
             'packages' => array_map(static fn(PackageRenames $packageRenames): array => $packageRenames->toJsonObject(), $this->packageRenamesList),
+            'baselinePackages' => (object)$this->baselineVersionsByPackage,
             'renames' => $pendingRenames,
             'hits' => array_map(static fn(RenameHit $hit): array => $hit->toJsonObject(), $this->hits),
             'changedFiles' => $this->changedFilePaths,

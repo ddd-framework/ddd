@@ -183,7 +183,10 @@ adds one entry per rename to `renames.json` at the package root (`{ version, kin
 `tools/Renames/renames.schema.json` in Core) in the same commit, and runs `vendor/bin/ddd-renames validate` (no chain,
 swap or duplicate within a version, old != new). The CHANGELOG names the renames; the map carries them.
 Applications run `vendor/bin/ddd-renames` after `composer update` (dry run, file:line), then `--apply` and commit the
-result with `.ddd-renames.json`; CI runs `--check`. Spec: README › "Renames of packages (machine-readable)".
+result with `.ddd-renames.json`; CI runs `--check`. `--apply` / `--mark-applied` also record the installed version of
+every DDD module and `mgamadeus/*` package without a map (the baseline for a map backfilled later), the `--include` /
+`--exclude` given and a `--vendor-dir` below the root (`vendorDir`). Spec: README › "Renames of packages
+(machine-readable)".
 
 ### Several packages in one domain: owned namespaces
 

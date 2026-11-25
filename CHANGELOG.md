@@ -2,6 +2,26 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.46.1
+
+- `ddd-renames`: `--apply` and `--mark-applied` now also record the installed version of every package that could ship
+  a `renames.json` but ships none yet — every DDD module (`extra.ddd-module` in `installed.json`) and every
+  `mgamadeus/*` package, Core included. Before, a state file written while no package shipped a map stayed
+  `"packages": {}`, and a map shipped later (backfilled to older versions) made every old rename pending again. The
+  rule is unchanged: a rename is pending when its version is newer than the recorded one and not newer than the
+  installed one; a recorded version is never lowered.
+- `ddd-renames`: `--include` / `--exclude` are added to `include` / `exclude` of `.ddd-renames.json` by every mode
+  that writes the state (`--apply`, `--mark-applied`; before: never, despite the help); a dry run and `--check` use them
+  for that run only. New state key `vendorDir` (relative to the root): `--vendor-dir` below the root is recorded by
+  the writing modes and used when the option is left out, so `--check` in CI needs no option.
+- Applications that already ran `--mark-applied` or `--apply`: run `vendor/bin/ddd-renames --mark-applied` once more
+  (with `--vendor-dir` when composer's vendor folder is not `<root>/vendor`) and commit `.ddd-renames.json`, so the
+  baseline exists before the first map.
+- Note on 3.46.0: `ParallelReadableObjectStorage` now extends `BasicObjectStorage` instead of implying the wide
+  contract. A class that implemented only `ParallelReadableObjectStorage` plus the wide methods must add
+  `ObjectStorage` to its `implements` list, otherwise `ObjectStorageService::getObjectStorage()` refuses it ("implements
+  only BasicObjectStorage").
+
 ## 3.46.0
 
 - Object storage drivers by configuration: `Common.ObjectStorage` takes `'drivers' => ['<driver name>' => Class::class]`

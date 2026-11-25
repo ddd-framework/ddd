@@ -540,13 +540,24 @@ vendor/bin/ddd-renames --format=json            # the same report for tools
   version (a branch install counts every entry). Without a record every entry is pending (old names that no longer
   occur cost nothing); `--from-version <package>=<version>` overrides the record, `--mark-applied` records the
   installed versions without touching files (renames already done by hand). Commit `.ddd-renames.json`.
+- **Baseline before the first map:** `--apply` and `--mark-applied` also record the installed version of every package
+  that could ship a map but ships none yet — every DDD module (`extra.ddd-module`) and every `mgamadeus/*` package,
+  Core included; other packages are not recorded. A map a package ships later, backfilled to older versions, then
+  makes only the renames after that baseline pending. A recorded version is never lowered.
+- **Root and vendor folder may differ:** `--root` is the folder that is scanned and holds `.ddd-renames.json`;
+  `--vendor-dir` is composer's vendor folder (default `<root>/vendor`). A repository root with docs, skills and a
+  frontend beside an `app/` folder holding composer's vendor runs `vendor/bin/ddd-renames --root . --vendor-dir
+  app/vendor` from the repository root (or `php app/vendor/bin/ddd-renames …`). The writing modes record a vendor
+  folder below the root as `"vendorDir": "app/vendor"` in the state file, used when the option is left out, so later
+  runs and `--check` need no option. The root itself is not stored (the state file lives in it).
 - **Order:** versions are applied in ascending order, each version in one pass, so a chain across versions
   (`A -> B` in 2.0.0, `B -> C` in 2.1.0) ends at `C`, also in a dry run. Within one version a chain, a swap or a name
   renamed twice is an error of `validate`.
 - **What is scanned:** every text file below the root (`--root`, default the current folder): `src/`, `config/`,
   `tests/`, templates, docs, eval fixtures, `.env*`, frontend sources; never `vendor/`, `node_modules/`, `.git/`,
   `var/`, symbolic links, lock files. `--include` / `--exclude` (folder prefix or glob, repeatable) or the keys
-  `include` / `exclude` of `.ddd-renames.json` narrow it.
+  `include` / `exclude` of `.ddd-renames.json` narrow it. `--apply` and `--mark-applied` add the options to those
+  keys; a dry run and `--check` use them for that run only.
 - **Whole names only.** `Agent.Web` never touches `Agent.Web.Search` (unless listed itself), `x.Agent.Web` or
   `Agent.Web-x`; `app:x:web` never `app:x:web:all`; `OLD_VAR` never `OLD_VAR_X`. A class matches as `A\B\C`, `\A\B\C`
   and escaped `A\\B\\C`, never `X\A\B\C` or `A\B\CD`, and by its short name in a PHP file that imports it; a

@@ -137,6 +137,84 @@ class RenamesCommandLineTest extends TestCase
         self::assertSame(RenamesCommandLine::EXIT_ERROR, $this->runBin(['--from-version', 'acme/agents'])[0]);
     }
 
+    public function testMarkAppliedRecordsABaselineBeforeThePackageShipsAMap(): void
+    {
+        $this->createApplication([]);
+        $moduleExtras = [
+            'mgamadeus/ddd' => [],
+            'acme/module' => ['extra' => ['ddd-module' => 'Acme\\Module\\AcmeModule']],
+        ];
+        $this->writeInstalledPackages(['mgamadeus/ddd' => '3.46.1', 'acme/module' => '2.0.0'], $moduleExtras);
+        [$exitCode, $output] = $this->runBin(['--mark-applied']);
+        self::assertSame(RenamesCommandLine::EXIT_SUCCESS, $exitCode, $output);
+        self::assertStringContainsString('baseline recorded for packages without a renames.json: acme/module 2.0.0, mgamadeus/ddd 3.46.1', $output);
+        $state = json_decode($this->readApplicationFile(RenamesCommandLine::STATE_FILE_NAME), true);
+        self::assertSame(
+            ['acme/module' => ['appliedThroughVersion' => '2.0.0'], 'mgamadeus/ddd' => ['appliedThroughVersion' => '3.46.1']],
+            $state['packages'],
+            'a DDD module and a mgamadeus/* package are recorded without a map, any other package (acme/no-map) is not'
+        );
+
+        mkdir($this->applicationDirectory . '/vendor/mgamadeus/ddd', 0775, true);
+        file_put_contents($this->applicationDirectory . '/vendor/mgamadeus/ddd/renames.json', json_encode(['format' => 1, 'package' => 'mgamadeus/ddd', 'renames' => [
+            ['version' => '3.40.0', 'kind' => 'envVar', 'old' => 'SETTINGS_URL', 'new' => 'SETTINGS_ENDPOINT'],
+            ['version' => '3.46.1', 'kind' => 'envVar', 'old' => 'AGENT_WEB_KEY', 'new' => 'AGENT_SEARCH_KEY'],
+            ['version' => '3.47.0', 'kind' => 'envVar', 'old' => 'AGENT_WEB_KEY', 'new' => 'AGENT_LOOKUP_KEY'],
+        ]]));
+        [$exitCode, $output] = $this->runBin(['--check']);
+        self::assertSame(RenamesCommandLine::EXIT_SUCCESS, $exitCode, 'a map backfilled to old versions makes nothing pending: ' . $output);
+        self::assertStringContainsString('mgamadeus/ddd 3.46.1 -> 3.46.1: 0 renames pending', $output);
+
+        $this->writeInstalledPackages(['mgamadeus/ddd' => '3.47.0', 'acme/module' => '2.0.0'], $moduleExtras);
+        [$exitCode, $output] = $this->runBin(['--check', '--format=json']);
+        self::assertSame(RenamesCommandLine::EXIT_FAILURE, $exitCode);
+        self::assertSame(['3.47.0'], array_column(json_decode($output, true)['renames'], 'version'), 'only the renames after the baseline');
+
+        $this->writeInstalledPackages(['mgamadeus/ddd' => '3.47.0', 'acme/module' => '1.9.0'], $moduleExtras);
+        $this->runBin(['--apply']);
+        $state = json_decode($this->readApplicationFile(RenamesCommandLine::STATE_FILE_NAME), true);
+        self::assertSame(['appliedThroughVersion' => '2.0.0'], $state['packages']['acme/module'], 'a baseline is never lowered');
+        self::assertSame(['appliedThroughVersion' => '3.47.0'], $state['packages']['mgamadeus/ddd']);
+        self::assertStringContainsString("AGENT_LOOKUP_KEY=secret\n", $this->readApplicationFile('.env'));
+    }
+
+    public function testIncludeAndExcludeAreAddedToTheStateFileOnlyByTheWritingModes(): void
+    {
+        $this->createApplication(['acme/agents' => '2.1.0', 'acme/settings' => '1.1.0']);
+        self::assertSame(RenamesCommandLine::EXIT_SUCCESS, $this->runBin(['--mark-applied', '--exclude', 'legacy', '--include', 'src'])[0]);
+        $state = json_decode($this->readApplicationFile(RenamesCommandLine::STATE_FILE_NAME), true);
+        self::assertSame(['src'], $state['include']);
+        self::assertSame(['legacy'], $state['exclude']);
+
+        $stateBefore = $this->readApplicationFile(RenamesCommandLine::STATE_FILE_NAME);
+        $this->runBin(['--exclude', 'docs']);
+        $this->runBin(['--check', '--exclude', 'docs']);
+        self::assertSame($stateBefore, $this->readApplicationFile(RenamesCommandLine::STATE_FILE_NAME), 'a dry run and --check write no state');
+
+        self::assertSame(RenamesCommandLine::EXIT_SUCCESS, $this->runBin(['--apply', '--exclude', 'tests', '--exclude', 'legacy'])[0]);
+        $state = json_decode($this->readApplicationFile(RenamesCommandLine::STATE_FILE_NAME), true);
+        self::assertSame(['src'], $state['include']);
+        self::assertSame(['legacy', 'tests'], $state['exclude'], 'added to the recorded list, each once');
+    }
+
+    public function testVendorDirBelowTheRootIsRecordedAndUsedWithoutTheOption(): void
+    {
+        $this->createApplication(['acme/agents' => '2.1.0', 'acme/settings' => '1.1.0']);
+        mkdir($this->applicationDirectory . '/app');
+        rename($this->applicationDirectory . '/vendor', $this->applicationDirectory . '/app/vendor');
+        self::assertSame(RenamesCommandLine::EXIT_ERROR, $this->runBin(['--check'])[0], 'no <root>/vendor and nothing recorded');
+
+        [$exitCode, $output] = $this->runBin(['--mark-applied', '--root', '.', '--vendor-dir', 'app/vendor']);
+        self::assertSame(RenamesCommandLine::EXIT_SUCCESS, $exitCode, $output);
+        $state = json_decode($this->readApplicationFile(RenamesCommandLine::STATE_FILE_NAME), true);
+        self::assertSame('app/vendor', $state['vendorDir']);
+        self::assertSame(['acme/agents' => ['appliedThroughVersion' => '2.1.0'], 'acme/settings' => ['appliedThroughVersion' => '1.1.0']], $state['packages']);
+
+        [$exitCode, $output] = $this->runBin(['--check']);
+        self::assertSame(RenamesCommandLine::EXIT_SUCCESS, $exitCode, 'the recorded vendorDir is used: ' . $output);
+        self::assertStringContainsString('acme/agents 2.1.0 -> 2.1.0: 0 renames pending', $output);
+    }
+
     /**
      * Copies the fixture application into a temporary folder, installs the fixture packages into its vendor folder.
      *
@@ -158,8 +236,9 @@ class RenamesCommandLineTest extends TestCase
 
     /**
      * @param array<string, string> $installedVersionsByPackage
+     * @param array<string, array<string, mixed>> $additionalKeysByPackage further installed.json keys (`extra`) per package
      */
-    protected function writeInstalledPackages(array $installedVersionsByPackage): void
+    protected function writeInstalledPackages(array $installedVersionsByPackage, array $additionalKeysByPackage = []): void
     {
         $packages = [];
         foreach ($installedVersionsByPackage as $packageName => $version) {
@@ -168,7 +247,7 @@ class RenamesCommandLineTest extends TestCase
                 'version' => $version,
                 'version_normalized' => ltrim($version, 'v') . '.0',
                 'install-path' => '../' . $packageName,
-            ];
+            ] + ($additionalKeysByPackage[$packageName] ?? []);
         }
         $packages[] = ['name' => 'acme/no-map', 'version' => '1.0.0', 'install-path' => '../acme/no-map'];
         file_put_contents($this->applicationDirectory . '/vendor/composer/installed.json', json_encode(['packages' => $packages, 'dev' => true]));
