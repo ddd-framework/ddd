@@ -167,6 +167,31 @@ $myService = DDDService::instance()->getService(MyService::class);
 
 **Never** instantiate services directly with `new`.
 
+### Overriding a framework or module command — names are inherited
+
+`#[AsCommand]` is not inherited by PHP, but the framework passes the names on (`FrameworkCommandsYieldPass`):
+
+- **By class.** A command of the application (or of another package) whose class EXTENDS a command of the framework or
+  of a registered DDD module replaces it: the package's service is removed, and the subclass is registered under ALL
+  names of the package command (name and aliases) after its own — its own primary name first, each name once. A
+  subclass without `#[AsCommand]` takes over the package command's name, aliases and description.
+- **Repeat `#[AsCommand]` only to ADD a name.** A subclass that copies the package's name freezes it: when the package
+  renames the command (old name kept as alias), the copy still works and the new name — the one package code starts by
+  constant — reaches the subclass too. Leave the attribute out unless the host needs a name of its own.
+- **By name.** An application command sharing a name with a framework command (class under `DDD\Symfony\Commands\`,
+  module commands there included) still replaces it without extending it.
+- A package command is a class of Core's `src/` (or below `DDD\Symfony\Commands\`) or a class file below a module's
+  `getSourcePath()`. Two commands of the same package extending each other are not affected. Two application
+  subclasses of one package command both get its names; the last registered wins each shared name — keep one.
+
+```php
+// no #[AsCommand]: replaces the module command and is registered under its name and every alias it declares
+class AgentEvalSuiteCommand extends \DDD\Symfony\Commands\Agents\AgentEvalSuiteCommand
+{
+    protected function configure(): void { parent::configure(); /* host options */ }
+}
+```
+
 ---
 
 ## Arguments & Options

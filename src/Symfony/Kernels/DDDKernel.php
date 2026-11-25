@@ -226,7 +226,8 @@ class DDDKernel extends Kernel
         // `throwErrors` of every instantiated service goes back to its default between two messages. Before Symfony's
         // ResettableServicePass (priority -32), which collects the kernel.reset tags this pass adds.
         $container->addCompilerPass(new ServicesThrowErrorsResetterPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, -16);
-        // A framework command yields to an application command of the same name. After the autoconfiguration has
+        // A package command yields to a subclass of another package or the application (which gets all its names) and a
+        // framework command to an application command of the same name. After the autoconfiguration has
         // tagged the commands (priority 100 of this phase), before the console's command loader (BEFORE_REMOVING).
         $container->addCompilerPass(new FrameworkCommandsYieldPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, -10);
         // A module command with aliases is listed once: its named console.command tag goes first (the console reads

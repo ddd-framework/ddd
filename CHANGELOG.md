@@ -2,6 +2,18 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.44.3
+
+- Console: a command class of the application (or of another package) that EXTENDS a command of the framework or of a
+  registered DDD module replaces it — the package's service is removed and the subclass is registered under all names
+  of the package command (name and aliases) after its own, its own primary name first, each once; a subclass without
+  `#[AsCommand]` takes over name, aliases and description (`FrameworkCommandsYieldPass`, by class hierarchy; the rule
+  by shared name stays). Before, `#[AsCommand]` not being inherited split the two silently: a host subclass that still
+  repeated a renamed command's old name registered only that, while package code started the new name.
+- Package command = a class of Core's `src/` or below `DDD\Symfony\Commands\`, or a class file below a module's
+  `getSourcePath()`. Commands of one package extending each other are not affected.
+- Nothing to do in an application. A host subclass may drop its copied `#[AsCommand]` (repeat it only to add a name).
+
 ## 3.44.2
 
 - Crons: a Cron whose command is no longer registered (a release removed it) can be switched off again —
