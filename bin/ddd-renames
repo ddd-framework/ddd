@@ -1,0 +1,21 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/*
+ * Applies the renames shipped by the installed packages (renames.json) to an application, and validates a package's
+ * own map. Run after composer update: "vendor/bin/ddd-renames" (dry run), "--apply", "--check" in CI.
+ * Plain PHP: boots no kernel and loads no application code.
+ */
+
+use DDD\Tools\Renames\RenamesCommandLine;
+
+if (PHP_VERSION_ID < 80300) {
+    fwrite(STDERR, "[ddd-renames] PHP 8.3 or newer is required\n");
+    exit(2);
+}
+
+require_once dirname(__DIR__) . '/tools/Renames/autoload.php';
+
+exit(RenamesCommandLine::runFromCommandLine(array_slice($argv, 1), (string)getcwd()));

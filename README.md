@@ -504,6 +504,63 @@ vendor/bin/ddd-server-messages collect --vendor-dir vendor --out var/server-mess
 - **Application export:** add the collected keys like the UI texts of the npm manifests, and never prune a key a
   package lists.
 
+### Renames of packages (machine-readable)
+
+A release that renames a skill, a constant, a class or namespace, a configuration key, a console command, a package id
+or an environment variable ships the rename as data, so an application does not rewrite the names by hand from
+changelog prose. A package lists every rename in `renames.json` at its root (JSON schema:
+`tools/Renames/renames.schema.json`); the Composer bin `ddd-renames` (plain PHP, no kernel) applies them.
+
+```json
+{
+    "format": 1,
+    "package": "acme/agents",
+    "renames": [
+        { "version": "2.0.0", "kind": "skillName", "old": "Agent.Web", "new": "Web.Research", "note": "optional" },
+        { "version": "2.0.0", "kind": "class", "old": "Acme\\Agents\\Tools\\WebTool", "new": "Acme\\Agents\\Tools\\ResearchTool" },
+        { "version": "2.0.0", "kind": "constant", "old": "Acme\\Agents\\AgentSkills::WEB", "new": "Acme\\Agents\\AgentSkills::WEB_RESEARCH" }
+    ]
+}
+```
+
+Kinds: `skillName`, `constant` (`Class::NAME`, the class stays; a moved class is its own `class` entry), `class`,
+`namespace`, `configKey`, `consoleCommand`, `packageId`, `envVar`. `version` is the regular release that made the
+rename.
+
+```bash
+vendor/bin/ddd-renames validate                 # in a package: schema, versions, old != new, no chain/swap/duplicate within a version
+vendor/bin/ddd-renames                          # in an application: dry run, lists file:line:column of every hit
+vendor/bin/ddd-renames --apply                  # writes the certain hits, records the installed versions in .ddd-renames.json
+vendor/bin/ddd-renames --check                  # CI: exit 1 while renames are pending
+vendor/bin/ddd-renames --format=json            # the same report for tools
+```
+
+- **Which renames are pending:** for every installed package with a `renames.json` (`vendor/composer/installed.json`),
+  the entries newer than the version recorded in the application's `.ddd-renames.json` and not newer than the installed
+  version (a branch install counts every entry). Without a record every entry is pending (old names that no longer
+  occur cost nothing); `--from-version <package>=<version>` overrides the record, `--mark-applied` records the
+  installed versions without touching files (renames already done by hand). Commit `.ddd-renames.json`.
+- **Order:** versions are applied in ascending order, each version in one pass, so a chain across versions
+  (`A -> B` in 2.0.0, `B -> C` in 2.1.0) ends at `C`, also in a dry run. Within one version a chain, a swap or a name
+  renamed twice is an error of `validate`.
+- **What is scanned:** every text file below the root (`--root`, default the current folder): `src/`, `config/`,
+  `tests/`, templates, docs, eval fixtures, `.env*`, frontend sources; never `vendor/`, `node_modules/`, `.git/`,
+  `var/`, symbolic links, lock files. `--include` / `--exclude` (folder prefix or glob, repeatable) or the keys
+  `include` / `exclude` of `.ddd-renames.json` narrow it.
+- **Whole names only.** `Agent.Web` never touches `Agent.Web.Search` (unless listed itself), `x.Agent.Web` or
+  `Agent.Web-x`; `app:x:web` never `app:x:web:all`; `OLD_VAR` never `OLD_VAR_X`. A class matches as `A\B\C`, `\A\B\C`
+  and escaped `A\\B\\C`, never `X\A\B\C` or `A\B\CD`, and by its short name in a PHP file that imports it; a
+  namespace and a configuration key move their children along (`A\B\Anything`, `AI.web.enabled`); a constant matches
+  as `A\B\C::OLD`, as `C::OLD` or an alias where the file imports `C`, and as `self/static/parent::OLD` in a subclass
+  of `C`. Of overlapping hits the longest wins (a renamed class over its renamed namespace).
+- **Ambiguous hits are reported, never written:** a single plain word outside quotes, `C::OLD` without an import of `C`
+  or outside PHP code, an inherited constant whose parent is another class, a short class name in its old namespace
+  when the class moved, a new short name already imported. Files named after an old dotted name
+  (`skills/Agent/Web.md`, `config/app/AI/webSearch.php`) are listed to be moved by hand. Not covered: grouped imports
+  (`use A\{B, C}`), configuration keys written as nested array keys, moving files.
+- **Application wiring:** run `vendor/bin/ddd-renames` after `composer update` (it lists what the update renamed),
+  `--apply`, review the diff, commit it with `.ddd-renames.json`; add `vendor/bin/ddd-renames --check` to CI.
+
 ### Untrusted Input
 
 Bytes and strings the server did not produce are never executed or interpreted as code. Core ships the helpers

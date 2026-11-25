@@ -1,9 +1,9 @@
 ---
 name: ddd-module-orchestrator
-description: Orchestrates all DDD modules from Core — study, release, propagate across the ecosystem. Contains the dependency graph, release order, the dependency-floor cascade (raise each dependent's floor to the exact fixed version, re-release transitively), consuming-app rules, the npm client @mgamadeus/ddd-web, the no-scripts policy (fine in modules, NEVER in apps), the platform-flag policy (apps pin config.platform.php, plain composer update -W), package-vs-repo names, the package cuts and names rulebook (shared domains, one feature word per package, ddd-agent organs, agent skills Topic.Feature, package ids provider.topic.feature bound by class, right constants, package vs host), doc layers (AGENTS.md, vendor skill links by ddd-link-skills), handoff-doc ingestion. Use when creating a package or host, naming a module, skill, package id or right, making cross-module changes, choosing release order, raising floors, running composer update in modules or apps, updating docs across repos, or ingesting a handoff doc.
+description: Orchestrates all DDD modules from Core — study, release, propagate. Contains the dependency graph, release order, the dependency-floor cascade (exact-version floors, transitive re-release), consuming-app rules, the npm client @mgamadeus/ddd-web, the no-scripts policy (modules yes, apps NEVER), the platform-flag policy (apps pin config.platform.php, plain composer update -W), package vs repo names, the package cuts and names rulebook (shared domains, one feature word per package, ddd-agent organs, agent skills Topic.Feature, package ids provider.topic.feature bound by class, right constants, package vs host), doc layers (AGENTS.md, vendor skill links by ddd-link-skills), rename maps (renames.json, ddd-renames), handoff-doc ingestion. Use when creating a package or host, naming a module, skill, package id or right, shipping renames, making cross-module changes, choosing release order, raising floors, running composer update in modules or apps, updating docs across repos, or ingesting a handoff doc.
 metadata:
   author: mgamadeus
-  version: "2.3.0"
+  version: "2.4.0"
 ---
 
 # DDD Module Orchestrator
@@ -175,6 +175,15 @@ The rulebook: [references/package-cuts-and-names.md](references/package-cuts-and
   its domain topics, adapters and ports.
 - Regular versions only, never `-rc.N`. The ddd-agents skill lint and `ModuleNamespacesTestCase` enforce the
   mechanical part.
+
+### Renames ship as data (`renames.json`, `ddd-renames`)
+
+A release that renames a skill name, constant, class, namespace, config key, console command, package id or env var
+adds one entry per rename to `renames.json` at the package root (`{ version, kind, old, new, note? }`; schema
+`tools/Renames/renames.schema.json` in Core) in the same commit, and runs `vendor/bin/ddd-renames validate` (no chain,
+swap or duplicate within a version, old != new). The CHANGELOG names the renames; the map carries them.
+Applications run `vendor/bin/ddd-renames` after `composer update` (dry run, file:line), then `--apply` and commit the
+result with `.ddd-renames.json`; CI runs `--check`. Spec: README › "Renames of packages (machine-readable)".
 
 ### Several packages in one domain: owned namespaces
 

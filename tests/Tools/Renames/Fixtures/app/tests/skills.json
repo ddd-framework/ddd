@@ -1,0 +1,1 @@
+{ "tool": "Acme\\Agents\\Tools\\WebTool", "toolCase": "Acme\\Agents\\Tools\\WebToolCase", "skill": "Agent.Web" }

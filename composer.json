@@ -8,7 +8,7 @@
         "issues": "https://github.com/ddd-framework/ddd/issues",
         "source": "https://github.com/ddd-framework/ddd"
     },
-    "version": "3.44.3",
+    "version": "3.45.0",
     "authors": [
         {
             "name": "Marius-Eugen Gerdan",
@@ -86,7 +86,8 @@
     },
     "bin": [
         "bin/ddd-link-skills",
-        "bin/ddd-server-messages"
+        "bin/ddd-server-messages",
+        "bin/ddd-renames"
     ],
     "config": {
         "allow-plugins": {

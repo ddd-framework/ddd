@@ -1,0 +1,14 @@
+{
+    "format": 1,
+    "package": "acme/agents",
+    "renames": [
+        { "version": "2.0.0", "kind": "skillName", "old": "Agent.Web", "new": "Web.Research", "note": "split into topic skills" },
+        { "version": "2.0.0", "kind": "class", "old": "Acme\\Agents\\Tools\\WebTool", "new": "Acme\\Agents\\Tools\\ResearchTool" },
+        { "version": "2.0.0", "kind": "namespace", "old": "Acme\\Agents\\Legacy", "new": "Acme\\Agents\\Classic" },
+        { "version": "2.0.0", "kind": "constant", "old": "Acme\\Agents\\AgentSkills::WEB", "new": "Acme\\Agents\\AgentSkills::WEB_RESEARCH" },
+        { "version": "2.0.0", "kind": "packageId", "old": "acme.agent.web", "new": "acme.web.research" },
+        { "version": "2.1.0", "kind": "consoleCommand", "old": "app:agents:web", "new": "app:agents:research" },
+        { "version": "2.1.0", "kind": "skillName", "old": "Web.Research", "new": "Web.Search" },
+        { "version": "3.0.0", "kind": "envVar", "old": "AGENT_WEB_KEY", "new": "AGENT_SEARCH_KEY" }
+    ]
+}

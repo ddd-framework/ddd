@@ -1,0 +1,4 @@
+services:
+    Acme\Agents\Tools\WebTool:
+        arguments: ['@Acme\Agents\Legacy\Memory', '%env(SETTINGS_URL)%', '%env(SETTINGS_URL_BACKUP)%']
+    app.skills: [!php/const Acme\Agents\AgentSkills::WEB, 'acme.agent.web', 'acme.agent.web.extra']

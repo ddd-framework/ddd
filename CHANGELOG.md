@@ -2,6 +2,22 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.45.0
+
+- Renames of packages as data: a package lists every rename of a skill name, constant, class, namespace, config key,
+  console command, package id or environment variable in `renames.json` at its root (`{ version, kind, old, new,
+  note? }`, JSON schema `tools/Renames/renames.schema.json`). New Composer bin `vendor/bin/ddd-renames` (plain PHP, no
+  kernel): in an application it finds the renames of the installed packages that are newer than the version recorded
+  in `.ddd-renames.json` and not newer than the installed one, lists every hit (dry run by default, `--format=json`),
+  writes the certain hits with `--apply` (whole names only, a boundary rule per kind; ambiguous hits are reported,
+  never written) and records the installed versions; `--check` exits 1 while renames are pending, `--mark-applied`
+  records without writing, `--from-version`, `--include` / `--exclude` narrow a run. In a package,
+  `ddd-renames validate` checks the map (schema, regular versions, old != new, no chain, swap or duplicate within a
+  version). README › "Renames of packages (machine-readable)".
+- Applications: optional. To adopt, run `vendor/bin/ddd-renames --mark-applied` once (or `--apply` to catch up on
+  renames already shipped), commit `.ddd-renames.json`, run `vendor/bin/ddd-renames` after each `composer update` and
+  add `vendor/bin/ddd-renames --check` to CI. Packages: ship a `renames.json` entry with every rename.
+
 ## 3.44.3
 
 - Console: a command class of the application (or of another package) that EXTENDS a command of the framework or of a

@@ -1,0 +1,97 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://raw.githubusercontent.com/ddd-framework/ddd/main/tools/Renames/renames.schema.json",
+    "title": "DDD package rename map (renames.json)",
+    "description": "Every rename a package release made, read by vendor/bin/ddd-renames in the adopting applications. Checked by `ddd-renames validate`, which also enforces what a schema cannot: old != new, a constant keeps its class, no name renamed twice and no chain or swap within one version.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["format", "renames"],
+    "properties": {
+        "$schema": { "type": "string" },
+        "format": { "const": 1 },
+        "package": {
+            "type": "string",
+            "description": "The Composer package name; must match composer.json when given."
+        },
+        "renames": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/rename" }
+        }
+    },
+    "$defs": {
+        "rename": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["version", "kind", "old", "new"],
+            "properties": {
+                "version": {
+                    "type": "string",
+                    "pattern": "^v?\\d+\\.\\d+\\.\\d+$",
+                    "description": "The package version that made the rename (regular MAJOR.MINOR.PATCH)."
+                },
+                "kind": {
+                    "enum": ["skillName", "constant", "class", "namespace", "configKey", "consoleCommand", "packageId", "envVar"]
+                },
+                "old": { "type": "string", "minLength": 1 },
+                "new": { "type": "string", "minLength": 1 },
+                "note": { "type": "string", "description": "Shown beside the rename in reports." }
+            },
+            "allOf": [
+                {
+                    "if": { "properties": { "kind": { "enum": ["class", "namespace"] } } },
+                    "then": {
+                        "properties": {
+                            "old": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\\\[A-Za-z_][A-Za-z0-9_]*)*$" },
+                            "new": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\\\[A-Za-z_][A-Za-z0-9_]*)*$" }
+                        }
+                    }
+                },
+                {
+                    "if": { "properties": { "kind": { "const": "constant" } } },
+                    "then": {
+                        "properties": {
+                            "old": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\\\[A-Za-z_][A-Za-z0-9_]*)*::[A-Za-z_][A-Za-z0-9_]*$" },
+                            "new": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\\\[A-Za-z_][A-Za-z0-9_]*)*::[A-Za-z_][A-Za-z0-9_]*$" }
+                        }
+                    }
+                },
+                {
+                    "if": { "properties": { "kind": { "enum": ["skillName", "packageId"] } } },
+                    "then": {
+                        "properties": {
+                            "old": { "pattern": "^[A-Za-z0-9_]([A-Za-z0-9_\\-.]*[A-Za-z0-9_])?$" },
+                            "new": { "pattern": "^[A-Za-z0-9_]([A-Za-z0-9_\\-.]*[A-Za-z0-9_])?$" }
+                        }
+                    }
+                },
+                {
+                    "if": { "properties": { "kind": { "const": "configKey" } } },
+                    "then": {
+                        "properties": {
+                            "old": { "pattern": "^[A-Za-z0-9_\\-]+(\\.[A-Za-z0-9_\\-]+)*$" },
+                            "new": { "pattern": "^[A-Za-z0-9_\\-]+(\\.[A-Za-z0-9_\\-]+)*$" }
+                        }
+                    }
+                },
+                {
+                    "if": { "properties": { "kind": { "const": "consoleCommand" } } },
+                    "then": {
+                        "properties": {
+                            "old": { "pattern": "^[A-Za-z0-9]([A-Za-z0-9_\\-:]*[A-Za-z0-9_\\-])?$" },
+                            "new": { "pattern": "^[A-Za-z0-9]([A-Za-z0-9_\\-:]*[A-Za-z0-9_\\-])?$" }
+                        }
+                    }
+                },
+                {
+                    "if": { "properties": { "kind": { "const": "envVar" } } },
+                    "then": {
+                        "properties": {
+                            "old": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+                            "new": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" }
+                        }
+                    }
+                }
+            ]
+        }
+    }
+}

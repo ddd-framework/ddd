@@ -517,6 +517,7 @@ Without the gate, a caller asking for "lite Entity without `setting`" pays an N-
 | Module compiler pass | `src/Symfony/CompilerPasses/ModuleCompilerPass.php` |
 | Vendor skill links (bin) | `bin/ddd-link-skills`, `tools/SkillLinks/VendorSkillLinker.php` |
 | Server messages of packages (bin) | `bin/ddd-server-messages`, `tools/ServerMessages/ServerMessagesManifest.php`; a package's `i18n/server-messages.json`, README › "Server messages of packages (text export)" |
+| Renames of packages (bin) | `bin/ddd-renames`, `tools/Renames/` (`RenamesCommandLine`, `RenameMatcher`, `renames.schema.json`); a package's `renames.json`, the app's `.ddd-renames.json`; README › "Renames of packages (machine-readable)" |
 | DDDBundle | `src/DDDBundle.php` |
 | DDDKernel | `src/Symfony/Kernels/DDDKernel.php` |
 | Untrusted-input helpers | `src/Infrastructure/Untrusted/`, `src/Infrastructure/Services/GuardedHttpFetchService.php` |
