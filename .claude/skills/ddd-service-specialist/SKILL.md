@@ -955,6 +955,14 @@ $downloadUrl = $exportsObjectStorage->createTemporaryUrl("reports/{$report->id}.
 
 ---
 
+### AI badge on published images (`AIBadgeStampService`)
+
+`buildImageBytesWithAIBadge($imageBytes, AIImageKind::GENERATED, $targetName)` stamps a round "AI" badge into a JPEG,
+PNG or WebP for a target display (config `Common.AIBadgeStamp`). Only an application calls it, right before it
+publishes an AI image on a social platform; never by default, never for websites (CSS overlay), no jurisdiction rule
+in the package. Size from the target display, EXIF orientation honoured, JPEG quality and metadata kept, C2PA dropped
+with a warning: [references/ai-badge-stamp.md](references/ai-badge-stamp.md).
+
 ### OAuth API client (`OauthHttpClientService`)
 
 `setOauthConfig()` gives a Guzzle client that signs with the access token and, on a 401, refreshes it with the

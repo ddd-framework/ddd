@@ -149,6 +149,7 @@ class ImageMetadataTest extends TestCase
         self::assertSame($target, ImageStructureWalker::buildJpegWithoutSegments($targetWithMarks, [$segmentsOfTargetWithMarks[3]]), 'nothing else changed');
     }
 
+    /** @dataProvider provideSingleMissingKinds */
     #[DataProvider('provideSingleMissingKinds')]
     public function testEachMissingKindIsInsertedAtItsPlace(string $missingKind): void
     {
@@ -207,6 +208,7 @@ class ImageMetadataTest extends TestCase
         );
     }
 
+    /** @dataProvider providePngXmpChunkLayouts */
     #[DataProvider('providePngXmpChunkLayouts')]
     public function testPngMarksAreWrittenIntoAJpeg(string $chunkType, bool $isCompressed): void
     {

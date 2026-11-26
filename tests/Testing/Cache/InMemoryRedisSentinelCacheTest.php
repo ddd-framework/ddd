@@ -74,6 +74,7 @@ class InMemoryRedisSentinelCacheTest extends TestCase
         ];
     }
 
+    /** @dataProvider cacheTypeEnvValues */
     #[DataProvider('cacheTypeEnvValues')]
     public function testTheGroupResolvesToTheDoubleWhateverCacheTypeTheEnvNames(?string $cacheTypeEnvValue): void
     {
@@ -84,6 +85,7 @@ class InMemoryRedisSentinelCacheTest extends TestCase
         self::assertSame($this->installedCache, Cache::instance(Cache::CACHE_GROUP_REDIS_SENTINEL));
     }
 
+    /** @dataProvider cacheTypeEnvValues */
     #[DataProvider('cacheTypeEnvValues')]
     public function testRestorePutsBackTheCacheTypeTheEnvironmentHad(?string $cacheTypeEnvValue): void
     {

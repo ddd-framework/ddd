@@ -36,8 +36,9 @@ class DDDBundle extends Bundle
         // Load application config (app-level: highest priority)
         Config::addConfigDirectory(DDDService::instance()->getRootDir() . '/config/app');
 
-        // Load DDD framework config (module-level: lower priority than app configs)
-        Config::addConfigDirectory(DDDService::instance()->getFrameworkRootDir() . '/config/app', isModule: true);
+        // Load DDD framework config (module-level: lower priority than app configs); getFrameworkRootDir() is the
+        // framework's src/, its config sits beside it
+        Config::addConfigDirectory(dirname(DDDService::instance()->getFrameworkRootDir()) . '/config/app', isModule: true);
 
         // Load module configs (module-level: lower priority than app configs) — every module the container
         // registered, the kernel's additional modules included

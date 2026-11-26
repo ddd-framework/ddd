@@ -5,6 +5,10 @@
          colors="true"
          cacheResultFile=".phpunit.cache/test-results"
          convertDeprecationsToExceptions="false">
+    <php>
+        <!-- the image metadata tests hold several 16 MB packets at once -->
+        <ini name="memory_limit" value="1G"/>
+    </php>
     <testsuites>
         <testsuite name="ddd">
             <directory>tests</directory>

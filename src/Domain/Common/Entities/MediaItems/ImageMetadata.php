@@ -88,9 +88,9 @@ class ImageMetadata
     public array $photoshopApp13Payloads = [];
 
     /**
-     * Empty; final so {@see fromImageBytes()} can build any subclass without arguments.
+     * Empty: {@see fromImageBytes()} builds any subclass without arguments, so a subclass keeps it argument-free.
      */
-    final public function __construct()
+    public function __construct()
     {
     }
 

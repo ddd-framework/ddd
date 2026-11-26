@@ -18,6 +18,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
  */
 class ImageFileStructureTest extends TestCase
 {
+    /** @dataProvider provideJpegStructures */
     #[DataProvider('provideJpegStructures')]
     public function testJpegStructure(string $jpegBytes, bool $isEndingWhereItsImageEnds): void
     {
@@ -25,6 +26,7 @@ class ImageFileStructureTest extends TestCase
         self::assertSame($isEndingWhereItsImageEnds, ImageFileStructure::isEndingWhereItsImageEnds($jpegBytes));
     }
 
+    /** @dataProvider providePngStructures */
     #[DataProvider('providePngStructures')]
     public function testPngStructure(string $pngBytes, bool $isEndingWhereItsImageEnds): void
     {

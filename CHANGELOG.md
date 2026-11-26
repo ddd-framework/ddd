@@ -13,6 +13,18 @@ Notes on what applications must do after an upgrade. Every release is described 
   TooManyRequestsHttpException of `QuotaSubscriber` with `{"error": "<message>"}` and keeps `Retry-After`, on the path
   prefixes of the new config `Common.TooManyRequestsJsonResponse` (`pathPrefixes`). The default is none: nothing changes
   until an application names its prefixes in `config/app/Common/TooManyRequestsJsonResponse.php`.
+- **AI badge on published images.** `DDD\Domain\Common\Services\AIBadgeStampService::buildImageBytesWithAIBadge()`
+  stamps a round frosted-glass "AI" badge into a JPEG, PNG or WebP for a target display (`AIBadgeStampTarget`), sized
+  from the display, EXIF orientation honoured, JPEG quality, subsampling and metadata kept, the IPTC digital source
+  type written, a C2PA manifest dropped with a warning. New config `Common.AIBadgeStamp` (framework default; an
+  application replaces it whole). New `AIImageKind` and `AIImageIptcTag` in `DDD\Domain\Common\Entities\MediaItems`.
+  Nothing changes until an application calls the service: nothing in the framework stamps an image, no country rule
+  is shipped, websites use a CSS overlay.
+- **Framework config defaults are loaded.** `DDDBundle` registered the framework's config directory below `src/`, so
+  the defaults in `config/app/` (`Common.Issues`, `Common.Quota`, …) were never read. They are now, at the lowest
+  priority; both shipped defaults are empty, so nothing changes for an application that has its own file or none.
+- Image metadata tests: `phpunit.xml.dist` sets `memory_limit` 1G; data providers carry `@dataProvider` beside the
+  attribute (PHPUnit 9 and 11).
 - **Test double `DDD\Testing\Cache\InMemoryRedisSentinelCache`**: a `redisSentinel` cache group that keeps its values in
   the process and never opens a connection (`installForCacheGroup()`, `restore()`).
 

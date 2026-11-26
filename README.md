@@ -727,6 +727,17 @@ says, then the destination's own rules (scan, quotas).
 Building a source, the flow matrix, a host rule and the routes: skill `ddd-files-specialist`. Built on it: `mgamadeus/ddd-clouddrive`
 (the source `drive`, imports from other sources) and `mgamadeus/ddd-agents` (references in the drive tools, `viewImages`).
 
+### AI badge on published images
+
+`DDD\Domain\Common\Services\AIBadgeStampService::buildImageBytesWithAIBadge($imageBytes, $aiImageKind, $targetName)`
+stamps a small round frosted-glass "AI" badge into a JPEG, PNG or WebP, sized for the TARGET display (24 CSS px on a
+390 px phone feed, scaled by the image width), bottom right by default with per-target safe zones (config
+`Common.AIBadgeStamp`, replaced whole by an application's `config/app/Common/AIBadgeStamp.php`). The JPEG keeps its
+quality and subsampling, EXIF/IPTC/XMP are put back, the IPTC digital source type is written, a C2PA manifest is
+dropped with a warning, an EXIF orientation is honoured. Nothing calls it by default: an application calls it before it
+publishes an AI image on a social platform and keeps its own jurisdiction rule; websites use a CSS overlay. Details:
+skill `ddd-service-specialist` › `references/ai-badge-stamp.md`.
+
 ## Project Structure (Consuming Application)
 
 ```
