@@ -2,6 +2,20 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.49.0
+
+- **Image metadata by bytes.** `DDD\Domain\Common\Entities\MediaItems\ImageMetadata` reads a JPEG's or PNG's EXIF,
+  IPTC and XMP from its bytes and inserts every kind a target image lacks (also across the two formats; C2PA is never
+  copied); `ImageFileStructure` answers whether bytes are a structurally complete JPEG or PNG; `ExifOrientation` names
+  the orientation values. No Imagick. Test fixtures for an application's tests: `DDD\Testing\MediaItems\ImageStructureWalker`
+  and `ImageMarkFixtureBuilder`.
+- **A 429 as JSON.** `DDD\Symfony\EventListeners\TooManyRequestsJsonResponseListener` answers the
+  TooManyRequestsHttpException of `QuotaSubscriber` with `{"error": "<message>"}` and keeps `Retry-After`, on the path
+  prefixes of the new config `Common.TooManyRequestsJsonResponse` (`pathPrefixes`). The default is none: nothing changes
+  until an application names its prefixes in `config/app/Common/TooManyRequestsJsonResponse.php`.
+- **Test double `DDD\Testing\Cache\InMemoryRedisSentinelCache`**: a `redisSentinel` cache group that keeps its values in
+  the process and never opens a connection (`installForCacheGroup()`, `restore()`).
+
 ## 3.48.4
 
 - Skill `ddd-files-specialist` and README corrected against the code: `RIDE_FILE` is GPX only (FIT, TCX are `OTHER`);
