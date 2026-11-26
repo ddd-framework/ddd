@@ -145,8 +145,9 @@ class MediaFileSourceService extends Service implements FileSource
 ```
 
 The interface carries `#[AutoconfigureTag('ddd.file_source')]`: an autowired service that implements it is registered
-without any `services.yaml` entry. The service lives in a `…\Services\` namespace and ends in `Service`
-(`ddd-service-specialist`).
+without any `services.yaml` entry, and `FileSourcesService::setFileSources()` receives every tagged service
+(`#[AutowireIterator]`). The service lives in a `…\Services\` namespace and ends in `Service`
+(`ddd-service-specialist`). A test that builds the registry by hand calls `setFileSources([$fixtureFileSource])`.
 
 ### Checklist for a new source
 
@@ -158,7 +159,23 @@ without any `services.yaml` entry. The service lives in a `…\Services\` namesp
 - [ ] Content type, size, sha256 measured; `isContentUntrusted` stays true for anything uploaded or received.
 - [ ] Cap checked before the read and after it; a trashed, unreleased or blocked file is refused.
 - [ ] `openLink` only through `setOpenLinkIfSafe()`; no content URL, no presigned URL, no object key.
-- [ ] Tests: rights (other account → left out), audience, cap, unknown and malformed ids, measured facts.
+- [ ] Tests (a fixture source and a registry built with `setFileSources()`; Core's own suite uses `FixtureFileSource` in `tests/Domain/Common/Files/Fixtures/`):
+      a file of another account is left out of the facts and "not found" on read, exactly like an unknown id;
+      malformed ids (`../1`, `0`, `abc`) are not looked up; the audience per file; the cap refuses (no cut);
+      type, size and sha256 come from the bytes; `openLink` is null for a URL; the order of `findFilesFacts()`.
+
+## Security model
+
+- **A reference is a name, not a grant.** Anyone (a client, a model, a log line) may type one; it only works for a
+  caller whose rights reach the entity, at the moment of the read. Never store a reference as proof of access.
+- **Unreadable = nonexistent.** No message, status or timing tells a caller that a file exists but is not theirs.
+- **Personal files never go durable.** Core's rule refuses every copy of a PERSONAL file into a store and answers
+  `isDurableCopyAllowed = false` for the model, so a picture of it stays in short-lived caches only.
+- **Metadata goes only when a file becomes public.** EXIF / XMP / IPTC (place, time, device) is removed for a PUBLIC
+  target; inside the team it stays, since it helps the people who work with the file. Previews never carry it.
+- **Bytes are foreign.** Decoding only through `RasterImageDecoder`, serving only as `UntrustedContentResponseDto`
+  (`ddd-untrusted-input-specialist`).
+- **One rule decides.** Every sink asks `FileFlowPolicyService`; no sink keeps its own audience logic beside it.
 
 ## Reading files: `FileSourcesService`
 

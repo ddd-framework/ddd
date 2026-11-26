@@ -2,6 +2,13 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.48.2
+
+- README: section "Files and file sources", and the two install hooks for agent skills (`ddd-link-skills` in
+  `post-install-cmd` / `post-update-cmd`, `ddd-web link-skills` in `postinstall`) in the installation steps.
+- Skill `ddd-files-specialist`: registration through `setFileSources()`, the tests a source needs, a security model
+  section. Documentation only.
+
 ## 3.48.1
 
 - New skill `ddd-files-specialist`: file sources (`FileSource` port, references `<source>/<id>`, `FileSourcesService`,

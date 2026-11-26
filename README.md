@@ -50,6 +50,24 @@ functions before any table: create the role and the database, then run
 create the tables through the schema diff. Details: the `ddd-database-schema-diff-specialist` skill, section "Setting
 up a new PostgreSQL database".
 
+**Agent skills of the installed packages** (Core, the modules, the npm packages) are linked into the app's
+`.claude/skills` by two install hooks — wire both, nothing else is needed per package:
+
+```json
+// composer.json (the app's Composer root), beside the existing scripts
+"scripts": {
+    "post-install-cmd": ["@php vendor/bin/ddd-link-skills"],
+    "post-update-cmd": ["@php vendor/bin/ddd-link-skills"]
+}
+```
+
+```json
+// package.json of the web frontend (when it installs @mgamadeus/* packages)
+"scripts": { "postinstall": "ddd-web link-skills" }
+```
+
+Details and the `--check` for CI: [Agent Skills (vendor skill links)](#agent-skills-vendor-skill-links).
+
 ## Quick Start
 
 ### 1. Entity
@@ -677,6 +695,29 @@ return [
   profile, instance metadata).
 - Every committed setting is overridden per host by `OBJECT_STORAGE_<NAME>_<SETTING>`;
   `getObjectStorageNotConfiguredReason($name)` says what is missing.
+
+### Files and file sources
+
+Files of every store of an application (a media library, ticket attachments, a drive) behind one port. A reference
+`<source>/<id>` (`media/901`) names a FILE, never a record, and is a name, not a grant: every read resolves it again
+under the caller's rights.
+
+- **Port `FileSource`** (`DDD\Domain\Common\Services\Files`, tag `ddd.file_source`, autoconfigured): a store answers
+  `getSourceName()`, `findFilesFacts(string[] $ids): FileFactsSet` (only what the caller may read) and
+  `readFileContent(string $id, int $maxBytes): FileContent`. It reads through its entity's repository, decides the
+  audience per file (`PUBLIC` < `SHARED` < `INTERNAL` < `PERSONAL`), checks the cap before the read, measures type,
+  size and sha256 from the bytes and hands out no store URL (at most an application path via `setOpenLinkIfSafe()`).
+- **`FileSourcesService`**: resolves references, reads facts (`findFilesFacts(FileReferences)`) and bytes with a cap,
+  renders previews through `RasterImageDecoder` (upright, metadata removed) and removes image metadata.
+- **`FileFlowPolicyService`**: the one flow rule every sink asks before it copies (STORE), hands bytes to a model
+  (MODEL) or shows a file (OPERATOR). Core's default never copies a file to more readers than it has, never copies a
+  PERSONAL file and keeps no durable copy of one for a model; metadata is removed when a file becomes PUBLIC. An
+  application replaces it with `App\Domain\Common\Services\Files\FileFlowPolicyService` (same path).
+- **`FileSourcesControllerTrait`**: `GET /{source}/{id}/facts` and `/{source}/{id}/content?variant=ORIGINAL|PREVIEW|THUMBNAIL`,
+  served through the backend and the session as untrusted content.
+
+Building a source, the flow rule and the routes: skill `ddd-files-specialist`. Built on it: `mgamadeus/ddd-clouddrive`
+(the source `drive`, imports from other sources) and `mgamadeus/ddd-agents` (references in the drive tools, `viewImages`).
 
 ## Project Structure (Consuming Application)
 
