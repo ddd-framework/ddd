@@ -43,6 +43,7 @@ Topic → skills:
 - Console command: ddd-cli-command-specialist
 - Message / handler / worker: ddd-message-handler-specialist
 - Issues log, registry, client errors, source maps, runtime errors: ddd-issues-log-specialist
+- File sources (FileSource port, references <source>/<id>, flow rule, file route): ddd-files-specialist
 - QueryOptions: ddd-query-options-specialist · Serializer: ddd-serializer-specialist · Rights: ddd-rights-specialist
 - Schema diff / PostgreSQL setup: ddd-database-schema-diff-specialist · Geometry / vectors: ddd-geometry-and-vector-specialist
 - Release, version bump, composer update: ddd-composer-update-version (+ ddd-module-orchestrator across modules)

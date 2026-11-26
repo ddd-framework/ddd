@@ -2,6 +2,12 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.48.1
+
+- New skill `ddd-files-specialist`: file sources (`FileSource` port, references `<source>/<id>`, `FileSourcesService`,
+  the flow rule `FileFlowPolicyService` and its same-path replacement, `FileSourcesControllerTrait`), a source skeleton
+  and checklist. Documentation only; no code change.
+
 ## 3.48.0
 
 **Files of any store behind one port.** New, nothing existing changes; no table.

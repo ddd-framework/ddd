@@ -12,6 +12,17 @@
       ]
     },
     {
+      "category": "File sources (FileSource port, flow rule, file route)",
+      "patterns": [
+        "*/src/Domain/Common/Services/Files/*",
+        "*/src/Domain/Common/Entities/Files/Sources/*",
+        "*/src/Presentation/Api/Admin/Common/Files/*"
+      ],
+      "skills": [
+        "ddd-files-specialist"
+      ]
+    },
+    {
       "category": "DB repository",
       "patterns": [
         "*/src/Domain/*/Repo/DB/*.php"

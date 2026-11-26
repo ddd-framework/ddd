@@ -935,6 +935,7 @@ conventions; a class placed from memory or from a brief breaks every consuming a
 | Message + handler, transport, consumer, worker list, worker monitoring, workers admin endpoints | `ddd-message-handler-specialist` |
 | Issues logging, registry, client errors | `ddd-issues-log-specialist` |
 | Uploads, images, foreign URLs, XML, archives, converters, file downloads, spreadsheet exports | `ddd-untrusted-input-specialist` |
+| File sources (`FileSource`, references `<source>/<id>`, flow rule, file route) | `ddd-files-specialist` |
 
 - **Anything fetched with `getService()` lives in a public `…\Services\` namespace** of `services.yaml` and ends in
   `Service`. Elsewhere it is private in an application's compiled container: removed or inlined, and the fetch fails at
