@@ -2,6 +2,43 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.48.0
+
+**Files of any store behind one port.** New, nothing existing changes; no table.
+
+- **New port `DDD\Domain\Common\Services\Files\FileSource`** (tag `ddd.file_source`, autoconfigured): a store of
+  files answers `getSourceName()` (`[a-z][a-z0-9-]{0,31}`), `findFilesFacts(string[] $ids): FileFactsSet` (only what
+  the signed-in account may read; unknown and unreadable ids are left out, never told apart) and
+  `readFileContent(string $id, int $maxBytes): FileContent` (same rights; larger content is refused, not cut).
+- **A file is named by its reference `<source>/<id>`** (`media/901`, `drive/3172`): `FileReference`
+  (`tryFromString()`, `fromString()`, `toString()`; the id is `[A-Za-z0-9_-]{1,128}`).
+- **Value objects** in `DDD\Domain\Common\Entities\Files\Sources`: `FileFacts` (name, `FileFamily`, server-measured
+  content type, size, sha256, width / height, `FileAudience`, `isContentUntrusted`, `containerLabel`, `openLink` set
+  only through `setOpenLinkIfSafe()` — an application path, never a content URL), `FileFactsSet`, `FileContent` (bytes
+  never serialized), `FileImagePreview`, `FileFlowTarget` (STORE with audience, store name, folder, own container;
+  MODEL; OPERATOR), `FileFlowDecision` (`isAllowed`, `refusalReason`, `requiresOwnerConsent`, `stripsMetadata`,
+  `isDurableCopyAllowed`, `expiresAfterDays`).
+- **Registry `FileSourcesService`**: `findFileReference()` / `resolveFileReference()` (form and registered source),
+  `findFileFacts()`, `requireFileFacts()`, `findFilesFacts(FileReferences)` (one call per source, asked order; `FileReferences::fromFileReferences()`), `readFileContent()`,
+  `renderImagePreview()` / `renderImagePreviewOfContent()` (JPEG, PNG, GIF, WebP, HEIC by magic bytes through
+  `RasterImageDecoder`; first frame, orientation applied, metadata removed, colour profile kept, never enlarged, PNG
+  with alpha else JPEG; source caps 25 MB and 50 megapixels by default) and `removeImageMetadata()` (orientation
+  applied first; bytes unchanged when nothing has to go).
+- **Flow rule `FileFlowPolicyService::decideFileFlow(FileFacts, FileFlowTarget): FileFlowDecision`**: the one
+  question every copy between stores, every read for a model and every show to an operator asks. The default: a file
+  never moves to a wider audience than its own (`FileAudience`: PUBLIC < SHARED < INTERNAL < PERSONAL), a PERSONAL
+  file is never copied into a store and never kept durably for a model; metadata is removed where the target audience
+  is PUBLIC. An application states its own rule with a class at the same path
+  (`App\Domain\Common\Services\Files\FileFlowPolicyService`).
+- **Route trait `FileSourcesControllerTrait`** (`DDD\Presentation\Api\Admin\Common\Files`): `GET
+  /{source}/{id}/facts` and `GET /{source}/{id}/content?variant=THUMBNAIL|PREVIEW|ORIGINAL`, answered as
+  `UntrustedContentResponseDto` (attachment unless a raster image, `nosniff`, sandbox CSP; `no-store` for a PERSONAL
+  file). The mounting controller overrides `throwForbiddenUnlessFileSourcesAccessAllowed()`; the flow rule (target
+  OPERATOR) is asked per file. No presigned URL, no object-store address.
+- Tests: reference forms, registry (rights of the source, caps, order), previews (orientation, metadata, alpha, HEIC,
+  refused non-raster bodies), the default flow rule, the routes with an allowed and a forbidding controller.
+
+
 ## 3.47.2
 
 - QueryOptions: the allowed-values check of a property with a `Choice` skips `eq` / `ne` against null (`null`,
