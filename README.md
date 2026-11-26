@@ -716,7 +716,13 @@ under the caller's rights.
 - **`FileSourcesControllerTrait`**: `GET /{source}/{id}/facts` and `/{source}/{id}/content?variant=ORIGINAL|PREVIEW|THUMBNAIL`,
   served through the backend and the session as untrusted content.
 
-Building a source, the flow rule and the routes: skill `ddd-files-specialist`. Built on it: `mgamadeus/ddd-clouddrive`
+A project adds sources (one class per prefix) and may replace the flow rule; `FileSourcesService` and every tool or
+route that takes references stay unchanged. Each sink checks in this order: the source's read right (facts), the flow
+rule (before any byte is read), owner consent when the decision asks for it, the size and pixel limits (previews:
+25 MB, 50 megapixels, edge 16–2048 px), the bytes measured, metadata removed when the target is public, durable copy
+and expiry as the decision says, then the destination's own rules.
+
+Building a source, the flow matrix, a host rule and the routes: skill `ddd-files-specialist`. Built on it: `mgamadeus/ddd-clouddrive`
 (the source `drive`, imports from other sources) and `mgamadeus/ddd-agents` (references in the drive tools, `viewImages`).
 
 ## Project Structure (Consuming Application)

@@ -1,9 +1,9 @@
 ---
 name: ddd-files-specialist
-description: "Builds and wires file sources in mgamadeus/ddd: files of any store (media library, attachments, a drive) behind one port, named by a reference <source>/<id>. Covers FileReference (names a FILE, never a record), FileReferences, implementing the FileSource port (tag ddd.file_source, rights through the repository, unreadable ids left out, audience per file, cap before the read, type/size/sha256 measured, setOpenLinkIfSafe), FileSourcesService (resolve, facts, content, previews, removeImageMetadata), FileAudience, FileFamily, the flow rule FileFlowPolicyService with FileFlowTarget and FileFlowDecision and its same-path replacement, FileSourcesControllerTrait (facts and content routes), a source skeleton and checklist. Use when adding a file source, exposing stored files to the agent or the drive, a reference does not resolve, a file is not found for a caller, deciding who may copy a file where, replacing the flow rule, serving a file by reference, or rendering a picture of a stored file."
+description: "Builds and wires file sources in mgamadeus/ddd: files of any store (media library, attachments, a drive) behind one port, named by a reference <source>/<id>. Covers FileReference (names a FILE, never a record), FileReferences, the FileSource port (tag ddd.file_source, repository rights, audience per file, cap before the read, measured type/size/sha256), FileSourcesService (facts, content, previews, removeImageMetadata), FileAudience, FileFamily, the flow rule FileFlowPolicyService (FileFlowTarget, FileFlowDecision, the audience x target matrix, a host rule skeleton with consent and expiry), where each check sits (25 MB / 50 MP / edge 16-2048), FileSourcesControllerTrait, a source skeleton and checklist. Use when adding a file source, exposing stored files to the agent or the drive, a reference does not resolve, a file is not found for a caller, deciding who may copy a file where, replacing the flow rule, serving a file by reference, or rendering a picture of a stored file."
 metadata:
   author: mgamadeus
-  version: 1.0.0
+  version: 1.1.0
   framework: mgamadeus/ddd >= 3.48.0
 ---
 
@@ -16,12 +16,28 @@ goes through `FileSourcesService`, and every copy or show asks the flow rule `Fi
 Code: `src/Domain/Common/Entities/Files/Sources/` (value objects), `src/Domain/Common/Services/Files/` (port, registry,
 flow rule), `src/Presentation/Api/Admin/Common/Files/` (route trait and DTOs).
 
+**What a project changes:** it adds sources (one class per prefix) and may replace the flow rule at its own path.
+`FileSourcesService` stays unchanged in every project; the tools, widgets and routes that take references understand
+a new prefix without any change of their own.
+
+```
+ SOURCES (one class each)        CORE                                   TARGETS (sinks)
+ media/<id>   host          ─┐   FileSourcesService                ┌─►  STORE    a copy (drive import, media import)
+ drive/<id>   ddd-clouddrive ├─► resolves the reference, facts,  ──┤
+ <prefix>/<id> any package  ─┘   bytes, previews, under the        ├─►  MODEL    bytes or a picture for the agent
+                                 caller's rights                   └─►  OPERATOR the admin file route (a browser)
+                                 FileFlowPolicyService: may file X go to target Y?
+                                 allow · allow with owner consent · refuse  (+ strip metadata? durable? expiry?)
+```
+
 ## Critical rules
 
 1. **A reference names a FILE, never a record.** `<source>/<id>`: `media/901` is the file 901 of the media library,
    not the product it shows. Source name `[a-z][a-z0-9-]{0,31}` (`FileReference::SOURCE_NAME_PATTERN`), id
    `[A-Za-z0-9_-]{1,128}` (`ID_PATTERN`): no slash, no dot, so a reference is never a path. It is an address in
-   arguments and routes, never a stored polymorphic column, and it grants nothing.
+   arguments and routes, never a stored polymorphic column, and it grants nothing. A record with several files has no
+   reference of its own: not `ticket/123`, but `support/4711` with the attachment's id; a composite id
+   (`support/t123-a2`) fits the pattern when a source needs one.
 2. **A source adds no right and lifts none.** It reads through its entity's service, so the repository's read rights
    apply. A file the caller may not read does not exist for it: left out of the facts, "not found" on read — never
    told apart from an unknown id.
@@ -201,22 +217,103 @@ A reference typed by anyone — a model included — resolves only here, under t
 copy into a store (`forStore`), bytes or a picture for the model (`forModel`), a show to an operator on the file route
 (`forOperator`).
 
-Core's default knows no application:
+Core's default knows no application. Principle: **a copy never reaches more people than could see the file where it
+lies**; a person's own file is copied nowhere. The matrix (file audience ↓, target →; a STORE target by its audience):
 
-| Target | Decision |
-|---|---|
-| MODEL, OPERATOR | allowed; `isDurableCopyAllowed` false for a PERSONAL file (a picture for the model stops at the cache) |
-| STORE, audience of file or target unknown | refused |
-| STORE, PERSONAL file | refused: a person's own file stays where it is (it can still be read in place) |
-| STORE, target audience wider than the file's | refused: "more people see … than see the file where it lies" |
-| STORE, otherwise | allowed; `stripsMetadata` when the target audience is PUBLIC (`isMetadataStrippedForAudience()`) |
+| File \ target | STORE PUBLIC | STORE SHARED | STORE INTERNAL | STORE PERSONAL | MODEL | OPERATOR |
+|---|---|---|---|---|---|---|
+| PUBLIC | allow, metadata stripped | allow | allow | allow | allow | allow |
+| SHARED | refuse (wider) | allow | allow | allow | allow | allow |
+| INTERNAL | refuse (wider) | refuse (wider) | allow | allow | allow | allow |
+| PERSONAL | refuse | refuse | refuse | refuse | allow, not durable | allow, not durable |
+| unknown audience | refuse | refuse | refuse | refuse | allow | allow |
+
+"wider" = `FileAudience::getRestrictionRank()` of the target is lower than the file's (PUBLIC 0 < SHARED 1 < INTERNAL 2
+< PERSONAL 3). `stripsMetadata` comes from `isMetadataStrippedForAudience()` (PUBLIC only). "not durable" =
+`isDurableCopyAllowed = false`: a picture of the file for the model stays in short-lived caches, never in an object
+store; a browser response is `private, no-store`. Default decisions never ask for consent and set no expiry.
 
 **An application replaces the rule** with a class at the same path under its root namespace —
 `App\Domain\Common\Services\Files\FileFlowPolicyService extends \DDD\Domain\Common\Services\Files\FileFlowPolicyService`
-— which every sink then asks. Typical own rules: a consent instead of a refusal for an internal file going to a
-shared space (`requiresOwnerConsent = true`; the sink stops until the owner said yes), an expiry for copies of
-PERSONAL data in a working folder (`expiresAfterDays`), a store that must never receive a family (`refuse()`). Keep
-`refusalReason` a sentence the caller can show; it reaches people and models.
+— which every sink then asks. Typical own rules: only some callers may move files at all; a consent instead of a
+refusal for an internal file going to a shared space (`requiresOwnerConsent = true`; the sink stops until the owner
+said yes); copies of PERSONAL data allowed into one working folder with an expiry (`expiresAfterDays`); a store that
+must never receive a family (`refuse()`). Keep `refusalReason` a sentence the caller can show; it reaches people and
+models.
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace App\Domain\Common\Services\Files;
+
+use DDD\Domain\Common\Entities\Files\Sources\FileAudience;
+use DDD\Domain\Common\Entities\Files\Sources\FileFacts;
+use DDD\Domain\Common\Entities\Files\Sources\FileFlowDecision;
+use DDD\Domain\Common\Entities\Files\Sources\FileFlowTarget;
+use DDD\Domain\Common\Services\Files\FileFlowPolicyService as CoreFileFlowPolicyService;
+
+/** The application's flow rule: replaces Core's for every sink (same path under App\). */
+class FileFlowPolicyService extends CoreFileFlowPolicyService
+{
+    public const string CUSTOMER_FILES_FOLDER = 'customer-files';
+    public const int CUSTOMER_FILE_COPY_DAYS = 30;
+
+    public function decideFileFlow(FileFacts $fileFacts, FileFlowTarget $fileFlowTarget): FileFlowDecision
+    {
+        if (!$this->isCallerAllowedToMoveFiles()) {                      // e.g. internal staff only, never partners
+            return FileFlowDecision::refuse(sprintf('%s: files are not available to you here.', $fileFacts->fileReference->toString()));
+        }
+        // a customer's file may be copied into the caller's own drive, below customer-files/, for 30 days
+        if ($fileFlowTarget->isStore() && $fileFacts->audience === FileAudience::PERSONAL) {
+            if (!$fileFlowTarget->isOwnContainer || !$fileFlowTarget->isInFolder(self::CUSTOMER_FILES_FOLDER)) {
+                return FileFlowDecision::refuse(sprintf(
+                    '%s was not copied: a customer\'s file goes only into %s/ of your own drive.',
+                    $fileFacts->fileReference->toString(),
+                    self::CUSTOMER_FILES_FOLDER
+                ));
+            }
+            $fileFlowDecision = FileFlowDecision::allow();
+            $fileFlowDecision->expiresAfterDays = self::CUSTOMER_FILE_COPY_DAYS;   // the drive sets the copy's expiry
+            return $fileFlowDecision;
+        }
+        // an internal file into a space shared with outside people: ask the owner instead of refusing
+        if ($fileFlowTarget->isStore() && $fileFacts->audience === FileAudience::INTERNAL
+            && $fileFlowTarget->audience === FileAudience::SHARED
+        ) {
+            $fileFlowDecision = FileFlowDecision::allow();
+            $fileFlowDecision->requiresOwnerConsent = true;
+            return $fileFlowDecision;
+        }
+        return parent::decideFileFlow($fileFacts, $fileFlowTarget);   // Core's matrix for everything else
+    }
+
+    protected function isCallerAllowedToMoveFiles(): bool
+    {
+        return true;   // the application's own check of the running account (roles, capabilities, areas)
+    }
+}
+```
+
+## Where each check sits
+
+The order a sink runs, for every file of a call:
+
+| # | Check | Where | Answer when it fails |
+|---|---|---|---|
+| 1 | the reference names a registered source | `FileSourcesService::findFileReference()` / `resolveFileReference()` | not a reference (a path) / 400 |
+| 2 | the caller may read the file (facts) | the source's `findFilesFacts()`, through its repository's read rights | left out / 404, same as an unknown id |
+| 3 | the file may go to this target | `FileFlowPolicyService::decideFileFlow()` — BEFORE any byte is read | `refusalReason` (a refused line, or 403) |
+| 4 | owner consent | `decision->requiresOwnerConsent` (or the sink's own mode, e.g. a mount `WRITE_WITH_CONSENT`) | the sink stops and asks; nothing written |
+| 5 | size and pixel limits | `readFileContent($ref, $maxBytes)` before the read; previews: source ≤ 25 MB (`PREVIEW_SOURCE_MAX_BYTES`), ≤ 50 megapixels (`PREVIEW_SOURCE_MAX_PIXELS`), edge 16–2048 px (`PREVIEW_MIN_EDGE_PIXELS` / `PREVIEW_MAX_EDGE_PIXELS`); sinks may lower them | 400, nothing cut |
+| 6 | the bytes are what they claim | type, size, sha256 measured from the bytes; decode only through `RasterImageDecoder` | refused content (400) |
+| 7 | metadata | `decision->stripsMetadata` → `removeImageMetadata()`; previews always without | — |
+| 8 | durable copy, expiry | `decision->isDurableCopyAllowed` (caches only), `decision->expiresAfterDays` (the sink sets the copy's expiry) | — |
+| 9 | the destination's own rules | the sink: write right, malware scan, quotas | the sink's error |
+
+A sink that skips step 3 bypasses the one rule — every new sink calls `decideFileFlow()` with the target it writes to
+or shows on.
 
 ## Serving files by reference: `FileSourcesControllerTrait`
 

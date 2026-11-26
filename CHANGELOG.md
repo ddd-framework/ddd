@@ -2,6 +2,14 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.48.3
+
+- Skill `ddd-files-specialist`: what a project changes (sources and the rule, never `FileSourcesService`), a picture
+  of sources, rule and targets, the flow matrix of Core's default (file audience × target), a skeleton of an
+  application's own rule (callers, consent, a working folder with expiry), where each check sits (facts, rule,
+  consent, limits, measured bytes, metadata, durable copy, the destination), composite ids. README: the check order.
+  Documentation only.
+
 ## 3.48.2
 
 - README: section "Files and file sources", and the two install hooks for agent skills (`ddd-link-skills` in
