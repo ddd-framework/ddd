@@ -49,8 +49,8 @@ a new prefix without any change of their own.
 5. **No URL of a store.** A source hands out at most `FileFacts::$openLink`, set only through `setOpenLinkIfSafe()` (an
    application path such as `/admin/media/901`; scheme, host, `//` and control characters are dropped). Bytes reach a
    browser only through the backend route.
-6. **Every sink asks the flow rule** before it writes or shows: after the source's read right, before the
-   destination's write right. A copy lives under the rights of its destination; the flow rule is what keeps a file
+6. **Every sink asks the flow rule** before it writes or shows: after the destination's write right and the source's
+   read right, before any byte is read. A copy lives under the rights of its destination; the flow rule is what keeps a file
    from reaching more people than where it lies.
 7. **A list of references is `FileReferences`** (ObjectSet, keyed by `<source>/<id>`, insertion order), never
    `FileReference[]` on a public signature (AGENTS.md › Arrays Are Not a Substitute for ValueObjects / ObjectSets).
@@ -66,7 +66,7 @@ a new prefix without any change of their own.
 | `FileContent` | `fileFacts` plus bytes (`fromFactsAndContent()`, `getContent()`, `getSizeBytes()`, `getContentStream()`); the bytes are never serialized |
 | `FileImagePreview` | a rendered picture: `fileFacts`, `contentType` (`image/jpeg` or `image/png`), `width`, `height`, `getContent()` |
 | `FileAudience` | `PUBLIC` < `SHARED` < `INTERNAL` < `PERSONAL` (`getRestrictionRank()`, `isKnown()`): who may see a file |
-| `FileFamily` | `IMAGE`, `PDF`, `DOCUMENT`, `SPREADSHEET`, `PRESENTATION`, `TEXT`, `RIDE_FILE` (GPX, FIT, TCX), `VIDEO`, `OTHER`; `fromContentType($contentType, $name)` |
+| `FileFamily` | `IMAGE`, `PDF`, `DOCUMENT`, `SPREADSHEET`, `PRESENTATION`, `TEXT`, `RIDE_FILE` (GPX only; FIT and TCX are `OTHER`), `VIDEO`, `OTHER`; `fromContentType($contentType, $name)` |
 | `FileFlowTarget` | where a file goes: `forStore($storeName, $audience, $containerLabel, $isOwnContainer, $folderPath)`, `forModel()`, `forOperator()` |
 | `FileFlowDecision` | `isAllowed`, `refusalReason`, `requiresOwnerConsent`, `stripsMetadata`, `isDurableCopyAllowed`, `expiresAfterDays`; `allow()`, `refuse($reason)` |
 
@@ -207,7 +207,7 @@ without any `services.yaml` entry, and `FileSourcesService::setFileSources()` re
 | `readFileContent(FileReference, int $maxBytes): FileContent` | the bytes with their facts; over the cap = 400 |
 | `renderImagePreview(FileReference, int $maxEdgePixels, ?$maxSourceBytes, ?$maxSourcePixels): FileImagePreview` | a picture for viewing: decoded pinned by `RasterImageDecoder` (JPEG, PNG, GIF, WebP, HEIC by magic bytes), first frame, upright, metadata removed, colour profile kept, never enlarged, PNG with alpha else JPEG; source caps 25 MB and 50 megapixels by default |
 | `renderImagePreviewOfContent(FileContent, …)` | the same for bytes already read |
-| `removeImageMetadata(string $bytes): string` | EXIF / XMP / IPTC removed (orientation applied first, colour profile kept); bytes unchanged when nothing has to go; for a sink whose decision says `stripsMetadata` |
+| `removeImageMetadata(string $bytes): string` | EXIF / XMP / IPTC removed (orientation applied first, colour profile kept); bytes unchanged when nothing has to go; a HEIC picture is always rewritten as JPEG (JPEG stays JPEG, the other formats keep theirs) — the sink takes content type and name extension from the result; for a sink whose decision says `stripsMetadata` |
 
 A reference typed by anyone — a model included — resolves only here, under the running account's rights.
 
@@ -298,21 +298,23 @@ class FileFlowPolicyService extends CoreFileFlowPolicyService
 
 ## Where each check sits
 
-The order a sink runs, for every file of a call:
+The order the sinks run, for every file of a call (the drive's import and the agent's save as the example):
 
 | # | Check | Where | Answer when it fails |
 |---|---|---|---|
 | 1 | the reference names a registered source | `FileSourcesService::findFileReference()` / `resolveFileReference()` | not a reference (a path) / 400 |
-| 2 | the caller may read the file (facts) | the source's `findFilesFacts()`, through its repository's read rights | left out / 404, same as an unknown id |
-| 3 | the file may go to this target | `FileFlowPolicyService::decideFileFlow()` — BEFORE any byte is read | `refusalReason` (a refused line, or 403) |
-| 4 | owner consent | `decision->requiresOwnerConsent` (or the sink's own mode, e.g. a mount `WRITE_WITH_CONSENT`) | the sink stops and asks; nothing written |
-| 5 | size and pixel limits | `readFileContent($ref, $maxBytes)` before the read; previews: source ≤ 25 MB (`PREVIEW_SOURCE_MAX_BYTES`), ≤ 50 megapixels (`PREVIEW_SOURCE_MAX_PIXELS`), edge 16–2048 px (`PREVIEW_MIN_EDGE_PIXELS` / `PREVIEW_MAX_EDGE_PIXELS`); sinks may lower them | 400, nothing cut |
-| 6 | the bytes are what they claim | type, size, sha256 measured from the bytes; decode only through `RasterImageDecoder` | refused content (400) |
-| 7 | metadata | `decision->stripsMetadata` → `removeImageMetadata()`; previews always without | — |
-| 8 | durable copy, expiry | `decision->isDurableCopyAllowed` (caches only), `decision->expiresAfterDays` (the sink sets the copy's expiry) | — |
-| 9 | the destination's own rules | the sink: write right, malware scan, quotas | the sink's error |
+| 2 | the caller may write the destination | the sink first: the drive's write right on the space (`DriveImportsService`), a read-only mount (`saveDriveFile`) | 403 for the whole call |
+| 3 | (agent, consent mount) the refusals known without bytes | the store's precheck (`AgentDriveSavePrecheck`, ddd-agents) runs steps 4–5 for every file | refused lines; those files are never put to the owner |
+| 4 | the caller may read the file (facts) | the source's `findFilesFacts()`, through its repository's read rights | left out / 404, same as an unknown id |
+| 5 | the file may go to this target | `FileFlowPolicyService::decideFileFlow()` — BEFORE any byte is read | `refusalReason` (a refused line, or 403) |
+| 6 | owner consent | the mount `WRITE_WITH_CONSENT` asks the owner (agent path, after step 3, for the remaining files); a decision's `requiresOwnerConsent` is met only by such a consent | the sink stops and asks; nothing written |
+| 7 | size and pixel limits | `readFileContent($ref, $maxBytes)` before the read; previews: source ≤ 25 MB (`PREVIEW_SOURCE_MAX_BYTES`), ≤ 50 megapixels (`PREVIEW_SOURCE_MAX_PIXELS`), edge 16–2048 px (`PREVIEW_MIN_EDGE_PIXELS` / `PREVIEW_MAX_EDGE_PIXELS`); sinks may lower them | 400, nothing cut |
+| 8 | the bytes are what they claim | type, size, sha256 measured from the bytes; decode only through `RasterImageDecoder` | refused content (400) |
+| 9 | metadata | `decision->stripsMetadata` → `removeImageMetadata()` (may change the format: HEIC → JPEG; the sink takes type and extension from the result); previews always without | — |
+| 10 | durable copy, expiry | `decision->isDurableCopyAllowed` (caches only), `decision->expiresAfterDays` (the sink sets the copy's expiry) | — |
+| 11 | the destination's own rules | the sink: malware scan, quotas, conflicts | the sink's error |
 
-A sink that skips step 3 bypasses the one rule — every new sink calls `decideFileFlow()` with the target it writes to
+A sink that skips step 5 bypasses the one rule — every new sink calls `decideFileFlow()` with the target it writes to
 or shows on.
 
 ## Serving files by reference: `FileSourcesControllerTrait`

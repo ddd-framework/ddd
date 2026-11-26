@@ -2,6 +2,14 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.48.4
+
+- Skill `ddd-files-specialist` and README corrected against the code: `RIDE_FILE` is GPX only (FIT, TCX are `OTHER`);
+  the check order of the sinks (destination write right first, the agent's store precheck before the consent
+  question, then facts, flow rule, limits, measured bytes, metadata, durable copy / expiry, the destination);
+  `removeImageMetadata()` rewrites HEIC as JPEG and the sink takes type and extension from the result. Documentation
+  only.
+
 ## 3.48.3
 
 - Skill `ddd-files-specialist`: what a project changes (sources and the rule, never `FileSourcesService`), a picture
