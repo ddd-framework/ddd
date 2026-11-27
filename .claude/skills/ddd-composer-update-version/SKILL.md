@@ -265,6 +265,14 @@ See the `ddd-module-orchestrator` skill for the complete module ecosystem, depen
 
 ## Rules
 
+- **Only the release sets a version.** A pull request (and every change that is not the release) leaves
+  `composer.json` / `package.json` `version` alone and writes its changelog entry under `## Unreleased`; the release
+  bumps the version, renames `## Unreleased` to it and tags. Merging a PR that set a version anyway: keep `main`'s
+  version fields, move its entry under `## Unreleased`. Every package repository states this in its `AGENTS.md`
+  (section "Contributing: versions and commit messages").
+- **Commit messages follow Conventional Commits** (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`; `!` or a
+  `BREAKING CHANGE:` footer for a breaking change) — the release commit too, e.g. `chore(release): 3.49.1`.
+
 - **Consumers never patch `mgamadeus/*`.** No cweagans `extra.patches`, no hand-edited `vendor/mgamadeus/` files in a consuming app. A DDD bug is fixed in the DDD repo and released as a patch version; the app updates. An unavoidable short-lived workaround lives in APP code with a TODO naming the target release — never in `vendor/`. A patch found in an app is an ingest candidate: upstream it, release, then the app drops the patch.
 - **Never** push a tag without first committing the version bump to `composer.json`
 - The tag version (`vX.Y.Z`) must match `composer.json` version (`X.Y.Z`)

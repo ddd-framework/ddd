@@ -903,8 +903,10 @@ what counts.
 documentation gaps); or send it back with the findings (design problems, missing tests, behaviour the owner has not
 agreed to). Never rewrite or force-push the contributor's branch.
 
-**5. Land it.** Squash the PR into ONE commit with the contributor as author and a neutral message — the net change,
-not the series:
+**5. Land it.** A PR that still sets a version (`composer.json` / `package.json` `version`, a version heading in
+`CHANGELOG.md`): keep `main`'s version fields and move its entry under `## Unreleased` ([Contributing: versions and
+commit messages](#contributing-versions-and-commit-messages)). Squash the PR into ONE commit with the contributor as
+author and a Conventional Commits message — the net change, not the series:
 ```bash
 git merge --squash pr/<n>
 git commit --author="<contributor name> <email from the PR commits>" -m "<what changes, why> (PR #<n>)"
@@ -979,3 +981,16 @@ conventions; a class placed from memory or from a brief breaks every consuming a
 | Module not discovered | `extra.ddd-module` in composer.json, class extends `DDDModule` |
 | Config not loading | Check `Config::addConfigDirectory()` call order, app > module > framework priority |
 | N+1 queries | Use `#[LazyLoad]` and `$expand` query options |
+
+## Contributing: versions and commit messages
+
+- **A pull request never sets a version.** Leave `version` in `composer.json` and in `package.json` as it is, and add
+  no version heading to `CHANGELOG.md`. Write the changelog entry under `## Unreleased` at the top of the changelog
+  (add the heading when it is missing).
+- **The maintainer assigns the version at release:** bumps `composer.json` / `package.json`, renames `## Unreleased` to
+  the new version and tags it. Versions are regular only (no pre-release suffixes).
+- **Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/):** `feat: …`, `fix: …`,
+  `docs: …`, `refactor: …`, `test: …`, `chore: …`, optionally with a scope (`fix(chat): …`); a breaking change carries
+  `!` after the type or a `BREAKING CHANGE:` footer.
+- **Merging a pull request that still carries a version:** keep the version fields of `main`, move its changelog entry
+  under `## Unreleased`, then release as usual.

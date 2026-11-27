@@ -2,6 +2,12 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.49.1
+
+- Docs only: pull requests never set a version (the release does; entries go under `## Unreleased`), and commit
+  messages follow Conventional Commits — `AGENTS.md` › "Contributing: versions and commit messages", the skill
+  `ddd-composer-update-version` and the PR ingest steps. Nothing changes for applications.
+
 ## 3.49.0
 
 - **Image metadata by bytes.** `DDD\Domain\Common\Entities\MediaItems\ImageMetadata` reads a JPEG's or PNG's EXIF,
