@@ -2,6 +2,14 @@
 
 Notes on what applications must do after an upgrade. Every release is described in its commit message and tag.
 
+## 3.49.2
+
+- Docs only: release rules of all DDD packages in `AGENTS.md` ("Release Rules"), the contributor side in every
+  package's `AGENTS.md` (rebase before merge, breaking changes named, no application terms, tags never moved). Skill
+  `ddd-composer-update-version`: applications pin every `mgamadeus/*` package to an exact version, a release freeze
+  uses a maintenance branch from the pinned tag, a hotfix is a patch release (a Composer patch only as an exception).
+  Applications: move to exact pins on your next update.
+
 ## 3.49.1
 
 - Docs only: pull requests never set a version (the release does; entries go under `## Unreleased`), and commit

@@ -1,6 +1,6 @@
 ---
 name: ddd-composer-update-version
-description: "Bump composer.json version, commit, push, and tag to trigger Packagist, then update consuming apps. Covers the platform-flag policy (apps pin config.platform.php, so plain composer update -W is correct; the broad --ignore-platform-reqs is a footgun that can poison the lock), the vendor-copy cwd hazard (git inside vendor/mgamadeus operates on the APP repo — never release from there), a one-liner patch release, the 7-module dependency-order release list, the dependency-floor cascade rule (downstream fix propagation = raise each dependent's require floor to the exact fixed version and re-release, not just composer update), and troubleshooting when a new version does not land (composer prohibits, composer clear-cache). Use when moving an app to Symfony 7.4 (upgrade checklist inside), releasing any DDD package (core or module), running composer update in a consuming app, choosing platform-req flags, propagating a bugfix through the module chain, or diagnosing why a freshly tagged version is not picked up."
+description: "Release DDD packages and move apps onto them: version only at release (PRs set none, entries under Unreleased), Conventional Commits, bump, tag (tags never moved), Packagist. Apps pin every mgamadeus/* to an exact version; release freeze with a maintenance branch from the pinned tag; hotfix = patch release, a Composer patch only as exception. Covers the platform-flag policy (apps pin config.platform.php, plain composer update -W; broad --ignore-platform-reqs poisons the lock), the vendor-copy cwd hazard (never release from vendor/mgamadeus), the module release order, the dependency-floor cascade, troubleshooting a version that does not land. Use when releasing any DDD package, merging a PR that set a version, pinning or moving an app's mgamadeus/* versions, a freeze or hotfix, running composer update in an app, choosing platform-req flags, propagating a fix through the module chain, or moving an app to Symfony 7.4."
 metadata:
   author: mgamadeus
   version: "1.0.0"
@@ -176,6 +176,20 @@ print(d['version'])
 Co-Authored-By: Claude <noreply@anthropic.com>" && git push && git tag "v$NEW_VERSION" && git push origin "v$NEW_VERSION" && echo "Released v$NEW_VERSION"
 ```
 
+## Applications: exact pins, freezes, hotfixes
+
+- **Every `mgamadeus/*` package is pinned to an exact version** in a consuming application's `composer.json`
+  (`"mgamadeus/ddd": "3.49.1"`, no `^` / `~`). Moving to a new release is an explicit change of the pin:
+  `composer require mgamadeus/ddd:3.49.1 -W` (then the update steps below), so no dependency moves by accident.
+- **Release freeze:** at a freeze the application keeps its pins. Needs it a fix on a line where the package's `main`
+  already carries newer features, the maintainer branches a maintenance branch from the pinned tag, releases a patch
+  there (e.g. `3.48.5` from `v3.48.4`), merges the fix forward into `main`, and the application pins that patch. No
+  permanent `N.x` branches.
+- **Hotfix:** the normal way is a patch release of the package and a new pin. A temporary Composer patch in the
+  application (`extra.patches`) is the exception — for an emergency until the patch release exists, with a TODO that
+  names the release, and removed with the next pin. Never hand-edited files in `vendor/`.
+- Tags are never moved or deleted; a broken release is followed by a new patch version.
+
 ## Updating Consuming Apps After a Release
 
 After tagging and pushing a new version, the consuming apps need a `composer update` to pick it up.
@@ -273,7 +287,7 @@ See the `ddd-module-orchestrator` skill for the complete module ecosystem, depen
 - **Commit messages follow Conventional Commits** (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`; `!` or a
   `BREAKING CHANGE:` footer for a breaking change) — the release commit too, e.g. `chore(release): 3.49.1`.
 
-- **Consumers never patch `mgamadeus/*`.** No cweagans `extra.patches`, no hand-edited `vendor/mgamadeus/` files in a consuming app. A DDD bug is fixed in the DDD repo and released as a patch version; the app updates. An unavoidable short-lived workaround lives in APP code with a TODO naming the target release — never in `vendor/`. A patch found in an app is an ingest candidate: upstream it, release, then the app drops the patch.
+- **Consumers fix `mgamadeus/*` by a patch release.** A DDD bug is fixed in the DDD repo and released as a patch version; the app moves its exact pin. A temporary Composer patch (`extra.patches`) is the exception for an emergency, with a TODO naming the target release, removed with the next pin; never hand-edited `vendor/mgamadeus/` files. A patch found in an app is an ingest candidate: upstream it, release, then the app drops the patch.
 - **Never** push a tag without first committing the version bump to `composer.json`
 - The tag version (`vX.Y.Z`) must match `composer.json` version (`X.Y.Z`)
 - Always include `Co-Authored-By` in commits

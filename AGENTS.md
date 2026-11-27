@@ -865,6 +865,29 @@ When a patch arrives from a consuming application tagged for ingest into Core --
 
 ---
 
+## Release Rules (all DDD packages)
+
+These hold for every package of the framework (Core, the modules, the npm packages). The contributor side is in
+"Contributing: versions and commit messages" at the end of this file and of every package's `AGENTS.md`.
+
+1. **Conventional Commits** for every commit of a package repository, the maintainer's included (`feat:`, `fix:`,
+   `docs:`, `refactor:`, `test:`, `chore(release): x.y.z`; `!` or a `BREAKING CHANGE:` footer for a breaking change).
+2. **Only the release assigns a version.** A pull request carries code and at most an entry under `## Unreleased`; it
+   never changes `version` in `composer.json` / `package.json`. The maintainer writes the changelog at release,
+   renames `## Unreleased` to the version, bumps both files and tags. Regular versions only.
+3. **A pull request is rebased on the current `main` before it is merged,** so only real code conflicts remain; a PR
+   that still sets a version keeps `main`'s version fields.
+4. **Tags are never moved or deleted.** A mistake is fixed by a new patch version.
+5. **A breaking change** is a major version (package at 1.0 or above) or a minor version (package at 0.x), and its
+   changelog entry says what an application must change.
+6. **No application terms in a package** — no application's name, no logic only one application has. A review point;
+   the application individualises through hooks.
+7. **Release freeze of an application:** the application pins its versions at the freeze. When it needs a fix on a line
+   where `main` already carries newer features, branch a maintenance branch from the pinned tag, release a patch
+   there and merge the fix forward into `main`. No permanent `N.x` branches.
+8. **Hotfix:** a patch release is the normal way; a temporary Composer patch in the application is the exception
+   (skill `ddd-composer-update-version` › "Applications: exact pins, freezes, hotfixes").
+
 ## Ingesting a Pull Request
 
 A pull request on this repository (or a module repository) is an ingest like any other: the [Ingest
@@ -994,3 +1017,10 @@ conventions; a class placed from memory or from a brief breaks every consuming a
   `!` after the type or a `BREAKING CHANGE:` footer.
 - **Merging a pull request that still carries a version:** keep the version fields of `main`, move its changelog entry
   under `## Unreleased`, then release as usual.
+- **Rebase on the current `main` before the merge,** so that only real code conflicts remain.
+- **A breaking change is named.** Its changelog entry says what an application must change. The release makes it a
+  major version (a package at 1.0 or above) or a minor version (a package still at 0.x).
+- **No application terms in a package:** no application's name, and no logic that only one application has (its own
+  posts, its own media screens, its own country rules). A package offers hooks; the application individualises
+  through them. Review checks this.
+- **Tags are never moved or deleted.** A mistake in a release is fixed by a new patch version.
